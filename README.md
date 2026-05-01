@@ -14,14 +14,14 @@
 
 MCP server, CLI, and API-compatible interface for Perplexity AI's web interface.
 
-Use your Perplexity Pro/Max subscription to access premium models (GPT-5.4, Claude 4.6 Opus, Claude 4.6 Sonnet, Gemini 3.1 Pro, Nemotron 3 Super) from the terminal, through MCP tools, or as an API endpoint.
+Use your Perplexity Pro/Max subscription to access premium models (GPT-5.4, GPT-5.5, Claude 4.7 Opus, Claude 4.6 Sonnet, Gemini 3.1 Pro, Nemotron 3 Super, Kimi K2.6) from the terminal, through MCP tools, or as an API endpoint.
 
 ## Features
 
 - **CLI**: Query Perplexity models directly from the terminal (`pwm ask`, `pwm council`, `pwm research`)
-- **MCP Server**: 17 MCP tools for AI agents with citations and rate limit checking
+- **MCP Server**: 22 MCP tools for AI agents with citations, source discovery, and rate limit checking
 - **API Server**: Drop-in Anthropic Messages API and OpenAI Chat Completions API
-- **6 Models**: GPT-5.4, Claude 4.6 Opus, Claude 4.6 Sonnet, Gemini 3.1 Pro, Nemotron 3 Super, Sonar 2
+- **8 Models**: GPT-5.4, GPT-5.5, Claude 4.7 Opus, Claude 4.6 Sonnet, Gemini 3.1 Pro, Nemotron 3 Super, Kimi K2.6, Sonar 2
 - **Thinking Mode**: Extended thinking support for all compatible models
 - **Deep Research**: Full support for Perplexity's Deep Research mode
 - **Model Council**: Query multiple models in parallel and get a synthesized consensus
@@ -285,10 +285,12 @@ pwm --ai                   # Print comprehensive AI-optimized reference
 | `sonar` | Perplexity | No | Sonar 2 (latest in-house; API id `experimental`) |
 | `deep_research` | Perplexity | No | Monthly quota, in-depth reports |
 | `gpt54` | OpenAI | Toggle | GPT-5.4 |
+| `gpt55` | OpenAI | Toggle | GPT-5.5 (Max tier required) |
 | `claude_sonnet` | Anthropic | Toggle | Claude 4.6 Sonnet |
-| `claude_opus` | Anthropic | Toggle | Claude 4.6 Opus (Max tier required) |
+| `claude_opus` | Anthropic | Toggle | Claude 4.7 Opus (Max tier required) |
 | `gemini_pro` | Google | Always | Gemini 3.1 Pro |
 | `nemotron` | NVIDIA | Always | Nemotron 3 Super 120B |
+| `kimi_k26` | Moonshot AI | Toggle | Kimi K2.6 |
 
 ### Source Focus
 
@@ -345,7 +347,7 @@ claude mcp add perplexity pwm-mcp
 
 ### Available MCP Tools
 
-**Query tools (12):**
+**Query tool groups:**
 
 | Tool | Description |
 |------|-------------|
@@ -354,10 +356,12 @@ claude mcp add perplexity pwm-mcp
 | `pplx_deep_research` | In-depth reports with sources |
 | `pplx_sonar` | Perplexity Sonar 2 (1 Pro Search) |
 | `pplx_gpt54` / `pplx_gpt54_thinking` | GPT-5.4 |
+| `pplx_gpt55` / `pplx_gpt55_thinking` | GPT-5.5 |
 | `pplx_claude_sonnet` / `pplx_claude_sonnet_think` | Claude 4.6 Sonnet |
-| `pplx_claude_opus` / `pplx_claude_opus_think` | Claude 4.6 Opus (Max tier) |
+| `pplx_claude_opus` / `pplx_claude_opus_think` | Claude 4.7 Opus (Max tier) |
 | `pplx_gemini_pro_think` | Gemini 3.1 Pro (thinking always on) |
 | `pplx_nemotron_thinking` | Nemotron 3 Super (thinking always on) |
+| `pplx_kimi_k26` / `pplx_kimi_k26_thinking` | Kimi K2.6 |
 
 **Smart routing (1):**
 
@@ -371,16 +375,17 @@ claude mcp add perplexity pwm-mcp
 |------|-------------|
 | `pplx_council` | Query multiple models in parallel with optional synthesis |
 
-**Usage & auth tools (4):**
+**Usage, source, and auth tools (5):**
 
 | Tool | Description |
 |------|-------------|
 | `pplx_usage` | Check remaining quotas |
+| `pplx_sources` | List available sources/connectors and premium source quotas |
 | `pplx_auth_status` | Check authentication status |
 | `pplx_auth_request_code` | Send verification code to email |
 | `pplx_auth_complete` | Complete auth with 6-digit code |
 
-All query tools support `source_focus`: `none`, `web`, `academic`, `social`, `finance`, `all`.
+All query tools support `source_focus`: `none`, `web`, `academic`, `social`, `finance`, `all`, `github`, `wiley`, `cbinsights`, `pitchbook`, `statista`, raw source IDs, and comma-separated lists.
 
 ---
 
@@ -422,7 +427,7 @@ export OPENAI_API_KEY=anything
 | `perplexity-auto` | Best (auto-select) | No |
 | `gpt-5.4` | GPT-5.4 | Toggle |
 | `claude-sonnet-4-6` | Claude 4.6 Sonnet | Toggle |
-| `claude-opus-4-6` | Claude 4.6 Opus | Toggle |
+| `claude-opus-4-7` | Claude 4.7 Opus | Toggle |
 | `gemini-3.1-pro` | Gemini 3.1 Pro | Always |
 | `nemotron-3-super` / `nemotron` | Nemotron 3 Super | Always |
 
