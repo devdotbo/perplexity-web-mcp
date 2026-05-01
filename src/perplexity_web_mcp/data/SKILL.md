@@ -25,120 +25,90 @@ pwm login --check       # Check auth status
 
 1. **Authenticate first**: Run `pwm login` before any queries
 2. **Tokens last ~30 days**: Re-run `pwm login` on 403 errors
-3. **Check quota before your first query every session** (see protocol below)
-4. **Default to quick/Sonar 2** — only escalate when the query genuinely needs Pro
-5. **Never use Deep Research autonomously** — only when the user explicitly asks
+3. **Default to `claude_opus` with `--thinking --intent detailed`** -- always use the best model
+4. **Always output to file** -- pipe to `/tmp/pwm-*.txt`, never dump into conversation context
+5. **Never use Deep Research autonomously** -- only when the user explicitly asks
 
-## Quota-Aware Usage Protocol (MANDATORY)
+## Default Invocation
 
-Perplexity has hard quota limits. Wasting Pro queries on simple lookups exhausts
-the weekly pool fast, leaving nothing for questions that actually need it.
+Every `pwm ask` call uses these flags -- no exceptions:
 
-### Cost Model
-
-| Tier | What It Costs | Resets | Typical Pool |
-|------|---------------|--------|--------------|
-| **Sonar 2 / quick** | 1 Pro Search | Weekly | ~300/week |
-| **Pro Search** (standard/detailed, pplx_ask, pplx_query, all model-specific tools) | 1 Pro Search query | Weekly | ~300/week |
-| **Council** (pplx_council, pwm council) | N+1 Pro Searches (1 per model + 1 Sonar 2 synthesis) | Weekly | ~300/week (shared) |
-| **Deep Research** (pplx_deep_research, research intent) | 1 Deep Research query | Monthly | ~5-10/month |
-
-### Before Every Session
-
-1. **Check quota first**: Call `pplx_usage()` (MCP) or `pwm usage` (CLI) before your first query.
-2. Review the remaining Pro and Research counts.
-3. If Pro < 20% remaining, restrict yourself to quick/Sonar 2 for everything except user-requested Pro queries.
-
-### Before Every Query: Choose the Lowest Sufficient Tier
-
-Ask yourself: **"Can Sonar 2 answer this?"** If yes, use `quick`. Only escalate if the answer is no.
-
-**Use quick (Sonar 2 — 1 Pro Search, cheapest option)** when the query is:
-- A factual lookup: "What is the capital of France?"
-- A definition: "What does CORS stand for?"
-- A simple current-event check: "Who won the Super Bowl?"
-- A quick status/version check: "What is the latest version of React?"
-- A straightforward how-to that's well-documented: "How do I create a venv in Python?"
-- A single-fact retrieval: "What is the population of Tokyo?"
-- A simple translation or conversion: "How many meters in a mile?"
-
-**Use standard (1 Pro Search)** when the query:
-- Needs synthesis across multiple web sources: "Compare Next.js and Remix for SSR"
-- Requires very current data from multiple sources: "What happened in AI this week?"
-- Asks for a how-to with nuance: "Best practices for PostgreSQL indexing in 2026"
-- Needs cited sources for credibility: "What are the side effects of metformin?"
-- Involves a real comparison or tradeoff analysis
-
-**Use detailed (1 Pro Search, premium model)** when the query:
-- Requires complex multi-step reasoning: "Analyze the pros/cons of microservices vs monolith for a 10-person startup"
-- Demands deep technical analysis: "Explain the differences between Raft and Paxos consensus algorithms"
-- Needs authoritative synthesis with reasoning: "What are the economic implications of the new EU AI Act?"
-
-**Use research (1 Deep Research — scarce)** ONLY when:
-- The user explicitly asks for "deep research", "comprehensive report", or similar
-- Never use autonomously — always ask the user first
-- Falls back to premium Pro Search if research quota is exhausted
-
-**Use council (N+1 Pro Searches — expensive)** when:
-- The user needs high-confidence answers validated across multiple AI providers
-- Important decisions, fact-checking, or complex analysis
-- BEFORE calling: ASK the user which models and how many (each = 1 Pro Search)
-- Available models: gpt54, gpt55, claude_sonnet, claude_opus, gemini_pro, nemotron, kimi_k26
-- Default: 3 models (GPT-5.4, Claude Opus, Gemini Pro) + synthesis = 4 Pro Searches
-
-### Decision Flowchart
-
-```
-You want to query Perplexity...
-│
-├─ Is this a simple fact, definition, or well-known how-to?
-│  └─ YES → intent='quick' (Sonar 2, 1 Pro Search)
-│
-├─ Does it need multiple current web sources or cited synthesis?
-│  └─ YES → intent='standard' (1 Pro Search)
-│
-├─ Does it need deep reasoning, complex analysis, or premium model quality?
-│  └─ YES → intent='detailed' (1 Pro Search, premium model)
-│
-├─ Does the user need high-confidence answers from multiple AI providers?
-│  └─ YES → pplx_council / pwm council (N+1 Pro Searches — ASK USER which models first!)
-│
-├─ Did the user explicitly request deep research / comprehensive report?
-│  └─ YES → intent='research' (1 Deep Research)
-│
-└─ When in doubt → intent='quick' (Sonar 2, upgrade later if insufficient)
+```bash
+pwm ask "question" -m claude_opus --thinking --intent detailed > /tmp/pwm-TASKID.txt
 ```
 
-### Smart Routing
+- `-m claude_opus` -- always explicit model, never bare `pwm ask` or auto/sonar
+- `--thinking` -- always enabled
+- `--intent detailed` -- always detailed (the standard research tier)
+- Output piped to `/tmp/pwm-*.txt` -- never dump raw content into conversation context
+- No `-s` flag by default -- no additional source focus unless the query specifically needs it
+- No `--json` by default -- raw markdown is cleaner for file output. Add `--json` only when programmatic parsing is needed.
 
-The tool includes quota-aware routing. Instead of choosing a model manually,
-use the smart query interface and let it pick the best option:
+### Rate Limiting and Parallelism
 
+0.5 requests per second = 1 request every 2 seconds. When launching parallel requests, stagger by `sleep 2` between each launch. Parallel execution is the default for independent queries.
+
+```bash
+# Parallel pattern with 2s stagger
+pwm ask "Q1" -m claude_opus --thinking --intent detailed > /tmp/pwm-q1.txt &
+sleep 2
+pwm ask "Q2" -m claude_opus --thinking --intent detailed > /tmp/pwm-q2.txt &
+sleep 2
+pwm ask "Q3" -m claude_opus --thinking --intent detailed > /tmp/pwm-q3.txt &
+wait
 ```
-MCP:  pplx_smart_query(query, intent="quick")       # default for most lookups
-MCP:  pplx_smart_query(query, intent="standard")    # when quick isn't enough
-CLI:  pwm ask "query"                                # auto routes via smart logic
-CLI:  pwm ask "query" --intent quick                 # explicit intent hint
-```
 
-### Automatic Quota Protection
+### Quota
 
-The smart router automatically protects you:
-- **Healthy quota**: Uses the ideal model for your intent
-- **Low quota (<20% pro remaining)**: Response footer warns you to conserve
-- **Critical quota (<10% pro remaining)**: Downgrades detailed→auto to conserve
-- **Exhausted quota**: Falls back to Sonar 2 for everything except research
-- **Research exhausted**: Falls back to premium Pro Search
-- Response metadata shows what model was used, why, and remaining quota
+Pro Search quota is ~600/day -- more than enough for normal work. Skip `pwm usage` for routine `pwm ask` calls.
 
-### When to Use Explicit Models Instead
+Only check `pwm usage` before:
+- Premium source queries (`-s cbinsights`, `-s pitchbook`, etc.) -- monthly limits, can exhaust
+- `pwm research` (Deep Research) -- costs 1 Deep Research credit per call
+- `pwm council` -- costs N Pro Searches (1 per model)
+- Heavy batch runs (20+ queries in one session)
 
-Only use model-specific tools (pplx_gpt54, pplx_claude_sonnet, etc.) when:
-- The user explicitly requests a specific model
-- You're comparing outputs across models
-- The smart router's choice isn't working for the specific use case
+| Tier | Cost | Resets | Pool |
+|------|------|--------|------|
+| **Pro Search** (claude_opus detailed) | 1 Pro Search | Daily | ~600/day |
+| **Council** (N models) | N Pro Searches | Daily | ~600/day (shared) |
+| **Deep Research** | 1 Deep Research | Daily | ~200/day |
+| **Premium sources** (cbinsights, pitchbook, etc.) | 1 per source | Monthly | ~50/month each |
 
-Each explicit model call costs 1 Pro Search query — there is no free tier for these.
+### When to Use Other Models
+
+Use `-m gpt54 --thinking` for second opinions or multi-model critique. Each call costs 1 Pro Search -- same as claude_opus.
+
+## Premium Source Protocol (MANDATORY)
+
+Four sources have monthly limits and must be treated as scarce resources:
+`cbinsights`, `pitchbook`, `statista`, `wiley`.
+
+### Rules
+
+1. **Do NOT use premium sources by default.** Standard queries should use
+   `web`, `academic`, `social`, or `finance` unless the user's question
+   specifically calls for premium data.
+2. **Before using any premium source**, call `pplx_sources(premium_only=True)`
+   to check remaining quota.
+3. **Inform the user** of the current quota and ASK for explicit permission
+   before including a premium source. Example:
+   "Statista has 1/50 queries remaining this month. Shall I use it for
+   this query?"
+4. **Only proceed** if the user approves.
+5. **If quota is exhausted** (0 remaining), do NOT include that source.
+   Inform the user and suggest alternatives.
+6. **If quota is low** (< 20% remaining), warn the user before asking
+   for permission.
+
+### When Premium Sources Make Contextual Sense
+
+- `cbinsights` / `pitchbook`: Private market data, startup funding, investor analysis
+- `statista`: Statistics, market size, industry data, survey results
+- `wiley`: Academic research, peer-reviewed papers beyond standard academic sources
+
+If the user's question does not clearly need these data types, use standard
+sources instead.
 
 ## Tool Detection
 
@@ -161,25 +131,22 @@ else:
 ```
 User wants to...
 |
-+-- Search the web / ask a question (RECOMMENDED: smart routing)
-|   +-- CLI:  pwm ask "query"                    # smart routing (default)
-|   +-- MCP:  pplx_smart_query(query)            # smart routing (default)
-|   +-- Explicit model: pwm ask "query" -m gpt54  or  pplx_query(query, model="gpt54")
++-- Search the web / ask a question
+|   +-- CLI:  pwm ask "query" -m claude_opus --thinking --intent detailed > /tmp/pwm-out.txt
+|   +-- MCP:  pplx_claude_opus_think(query)
 |
-+-- Query multiple models at once (Model Council)
-|   +-- CLI:  pwm council "query"                         # default 3 models
-|   +-- CLI:  pwm council "query" -m gpt54,claude_sonnet  # custom models
-|   +-- MCP:  pplx_council(query)                         # ASK USER which models first!
++-- Query multiple models at once (Model Council -- ask user first)
+|   +-- CLI:  pwm council "query" > /tmp/pwm-council.txt
+|   +-- MCP:  pplx_council(query)
 |
-+-- Deep research on a topic
-|   +-- CLI:  pwm research "query"
++-- Deep research on a topic (ask user first)
+|   +-- CLI:  pwm research "query" > /tmp/pwm-research.txt
 |   +-- MCP:  pplx_deep_research(query)
 |
-+-- Use a specific model
-|   +-- CLI:  pwm ask "query" -m gpt54 --thinking
-|   +-- MCP:  pplx_gpt54_thinking(query)  or  pplx_query(query, model="gpt54", thinking=True)
++-- Second opinion / multi-model critique
+|   +-- CLI:  pwm ask "query" -m gpt54 --thinking --intent detailed > /tmp/pwm-gpt.txt
 |
-+-- Check remaining quotas
++-- Check remaining quotas (only before premium sources, deep research, or council)
 |   +-- CLI:  pwm usage
 |   +-- MCP:  pplx_usage()
 |
@@ -197,56 +164,37 @@ User wants to...
 
 ## CLI Commands
 
-### Querying
+### Querying (default)
 
 ```bash
-pwm ask "What is quantum computing?"
+pwm ask "What is quantum computing?" -m claude_opus --thinking --intent detailed > /tmp/pwm-out.txt
 ```
 
-Choose a specific model with `-m`:
+Optional source focus with `-s` (omit by default):
 ```bash
-pwm ask "Compare React and Vue" -m gpt54
-pwm ask "Explain attention mechanism" -m claude_sonnet
+pwm ask "transformer improvements 2025" -m claude_opus --thinking --intent detailed -s academic > /tmp/pwm-out.txt
+pwm ask "Apple revenue Q4 2025" -m claude_opus --thinking --intent detailed -s finance > /tmp/pwm-out.txt
 ```
 
-Enable extended thinking with `-t`:
+Second opinion with a different model:
 ```bash
-pwm ask "Prove sqrt(2) is irrational" -m claude_sonnet --thinking
+pwm ask "Compare React and Vue" -m gpt54 --thinking --intent detailed > /tmp/pwm-gpt.txt
 ```
 
-Focus on specific sources with `-s`:
+Add `--json` only when programmatic parsing is needed:
 ```bash
-pwm ask "review this code for bugs" -s none            # Model only, no web search
-pwm ask "transformer improvements 2025" -s academic   # Scholarly papers
-pwm ask "best mechanical keyboard" -s social           # Reddit/Twitter
-pwm ask "Apple revenue Q4 2025" -s finance             # SEC EDGAR filings
-pwm ask "latest AI news" -s all                        # All sources
-```
-
-Output options:
-```bash
-pwm ask "What is Rust?" --json            # JSON (for piping)
-pwm ask "What is Rust?" --no-citations    # Answer only, no URLs
-```
-
-Combine flags:
-```bash
-pwm ask "protein folding advances" -m gemini_pro -s academic --json
+pwm ask "What is Rust?" -m claude_opus --thinking --intent detailed --json > /tmp/pwm-out.json
 ```
 
 ### Model Council
 
 Query multiple models in parallel and get a synthesized consensus.
-Each model in the council costs 1 Pro Search, plus 1 for Sonar 2 synthesis. Default: 3 models + synthesis = 4 Pro Searches.
+Each model in the council costs 1 Pro Search. Default: 3 models = 3 Pro Searches.
+Ask the user before using.
 
 ```bash
-pwm council "What are the best practices for microservices?"           # default 3 models
-pwm council "Compare Rust and Go for backend" -m gpt54,claude_sonnet  # custom 2 models
-pwm council "Explain quantum computing" -s academic                   # with source focus
-pwm council "Prove the Pythagorean theorem" --thinking                # extended thinking
-pwm council "AI trends 2026" --chairman claude_sonnet                 # premium synthesis (+1 Pro)
-pwm council "Is React or Vue better?" --no-synthesis                  # skip synthesis
-pwm council "AI trends 2026" --json                                   # JSON output
+pwm council "What are the best practices for microservices?" > /tmp/pwm-council.txt
+pwm council "Compare Rust and Go for backend" -m gpt54,claude_sonnet > /tmp/pwm-council.txt
 ```
 
 ### Deep Research
@@ -279,23 +227,22 @@ pwm usage --refresh         # Force-refresh from server
 
 | Tool | Cost | Purpose |
 |------|------|---------|
-| `pplx_smart_query` | **Varies by intent** | **USE THIS BY DEFAULT** — quota-aware auto routing |
-| `pplx_sonar` | 1 Pro Search | Perplexity Sonar 2 |
+| `pplx_claude_opus` / `_think` | 1 Pro | **USE THIS BY DEFAULT** -- Anthropic Claude 4.7 Opus |
+| `pplx_smart_query` | Varies by intent | Quota-aware auto routing (fallback) |
+| `pplx_sonar` | **FREE** | Perplexity Sonar model (no Pro quota used) |
 | `pplx_query` | 1 Pro | Explicit model selection with thinking toggle |
 | `pplx_ask` | 1 Pro | Quick Q&A (auto model) |
-| `pplx_council` | **N+1 Pro** (1 per model + 1 synthesis) | Model Council — **ASK USER which models first!** Supports `thinking=True` and `chairman` for synthesis model. |
-| `pplx_gpt54` / `_thinking` | 1 Pro | OpenAI GPT-5.4 (versatile) |
-| `pplx_gpt55` / `_thinking` | 1 Pro | OpenAI GPT-5.5 (latest, Max tier) |
+| `pplx_council` | **N Pro** (1 per model) | Model Council -- **ASK USER which models first!** |
+| `pplx_gpt54` / `_thinking` | 1 Pro | OpenAI GPT-5.4 |
 | `pplx_claude_sonnet` / `_think` | 1 Pro | Anthropic Claude 4.6 Sonnet |
-| `pplx_claude_opus` / `_think` | 1 Pro | Anthropic Claude 4.7 Opus |
 | `pplx_gemini_pro_think` | 1 Pro | Google Gemini 3.1 Pro (thinking always on) |
 | `pplx_nemotron_thinking` | 1 Pro | NVIDIA Nemotron 3 Super (thinking always on) |
-| `pplx_kimi_k26` / `_thinking` | 1 Pro | Moonshot Kimi K2.6 |
 | `pplx_deep_research` | 1 Research | In-depth reports (**scarce monthly quota**) |
 | `pplx_usage` | FREE | Check remaining quotas |
 | `pplx_auth_status` | FREE | Check auth status |
 | `pplx_auth_request_code` | FREE | Send verification code |
 | `pplx_auth_complete` | FREE | Complete auth with code |
+| `pplx_sources(premium_only=False)` | FREE | List available sources and their quotas |
 
 All query tools accept `source_focus`: `"none"`, `"web"`, `"academic"`, `"social"`, `"finance"`, `"all"`.
 Use `source_focus="none"` for model-only queries without web search.
@@ -307,15 +254,13 @@ For full MCP tool parameters: See [references/mcp-tools.md](references/mcp-tools
 | CLI Name | Provider | Thinking | Notes |
 |----------|----------|----------|-------|
 | auto | Perplexity | No | Auto-selects best |
-| sonar | Perplexity | No | Sonar 2 (API id `experimental`) |
+| sonar | Perplexity | No | Latest Perplexity model |
 | deep_research | Perplexity | No | Monthly quota |
-| gpt54 | OpenAI | Toggle | GPT-5.4 (versatile) |
-| gpt55 | OpenAI | Toggle | GPT-5.5 (latest, Max tier) |
+| gpt54 | OpenAI | Toggle | GPT-5.4 |
 | claude_sonnet | Anthropic | Toggle | Claude 4.6 Sonnet |
 | claude_opus | Anthropic | Toggle | Claude 4.7 Opus (Max tier) |
 | gemini_pro | Google | Always | Gemini 3.1 Pro |
 | nemotron | NVIDIA | Always | Nemotron 3 Super 120B |
-| kimi_k26 | Moonshot | Toggle | Kimi K2.6 |
 
 For full model details: See [references/models.md](references/models.md)
 
@@ -323,12 +268,20 @@ For full model details: See [references/models.md](references/models.md)
 
 | Option | Description | Example Use Case |
 |--------|-------------|------------------|
-| `none` | No search — model training data only. **Note: still costs 1 Pro Search for premium models** | Code review, writing, analysis without web |
+| `none` | No search -- model training data only | Code review, writing, analysis without web |
 | `web` | General web search (default) | News, general questions |
 | `academic` | Academic papers, journals | Research, citations, scientific topics |
 | `social` | Reddit, Twitter, forums | Opinions, recommendations, community |
 | `finance` | SEC EDGAR filings | Company financials, regulatory filings |
 | `all` | Web + Academic + Social | Broad coverage across all sources |
+| `github` | GitHub source code (via connector) | Code search, repository exploration |
+| `wiley` | PREMIUM - Wiley Online Library (monthly limit) | Academic research, peer-reviewed papers |
+| `cbinsights` | PREMIUM - CB Insights market intelligence (monthly limit) | Startup data, market trends |
+| `pitchbook` | PREMIUM - PitchBook financial data (monthly limit) | Private market, funding, investor data |
+| `statista` | PREMIUM - Statista statistics (monthly limit) | Statistics, market size, industry data |
+
+Raw source IDs (e.g., `wiley_mcp_cashmere`) and comma-separated lists (e.g., `web,wiley`) are also accepted.
+`all` expands to `web + academic + social` only -- it does NOT include premium sources.
 
 ## Error Recovery
 
@@ -341,50 +294,47 @@ For full model details: See [references/models.md](references/models.md)
 
 ## Common Patterns
 
-### Quick web search
+### Default query
 ```bash
-pwm ask "What happened in AI today?"
+pwm ask "What happened in AI today?" -m claude_opus --thinking --intent detailed > /tmp/pwm-ai-news.txt
 ```
 
-### Model-only query (no web search)
+### Parallel queries with 2s stagger
 ```bash
-pwm ask "Explain the visitor pattern in OOP" -s none
-pwm ask "Write a Python decorator for retry logic" -m claude_sonnet -s none
-```
-
-### Specific model
-```bash
-pwm ask "Compare React and Vue" -m gpt54
-```
-
-### Model with thinking
-```bash
-pwm ask "Prove sqrt(2) is irrational" -m claude_sonnet -t
+pwm ask "Compare React and Vue" -m claude_opus --thinking --intent detailed > /tmp/pwm-react-vue.txt &
+sleep 2
+pwm ask "Compare Next.js and Remix" -m claude_opus --thinking --intent detailed > /tmp/pwm-next-remix.txt &
+wait
 ```
 
 ### Academic research
 ```bash
-pwm ask "transformer improvements 2025" -m gemini_pro -s academic
+pwm ask "transformer improvements 2025" -m claude_opus --thinking --intent detailed -s academic > /tmp/pwm-transformers.txt
 ```
 
 ### Financial analysis
 ```bash
-pwm ask "Apple revenue Q4 2025" -s finance
+pwm ask "Apple revenue Q4 2025" -m claude_opus --thinking --intent detailed -s finance > /tmp/pwm-apple.txt
+```
+
+### Model-only query (no web search)
+```bash
+pwm ask "Explain the visitor pattern" -m claude_opus --thinking --intent detailed -s none > /tmp/pwm-visitor.txt
+```
+
+### Second opinion (GPT 5.4)
+```bash
+pwm ask "Compare React and Vue" -m gpt54 --thinking --intent detailed > /tmp/pwm-gpt-react.txt
+```
+
+### Deep research (ask user first)
+```bash
+pwm research "quantum computing breakthroughs 2026" > /tmp/pwm-quantum-research.txt
 ```
 
 ### Launch Claude Code seamlessly (Integration)
 ```bash
 pwm hack claude
-```
-
-### Deep research pipeline
-```bash
-pwm research "quantum computing breakthroughs 2026" --json > research.json
-```
-
-### Check everything before heavy use
-```bash
-pwm login --check && pwm usage
 ```
 
 ### Re-authenticate (non-interactive, for AI agents)

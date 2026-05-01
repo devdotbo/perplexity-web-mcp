@@ -151,6 +151,11 @@ class TestCmdAsk:
         call_args = mock_ask.call_args
         assert call_args[0][2] == "github_mcp_direct"
 
+    @patch("perplexity_web_mcp.cli.main.ask", return_value="response")
+    def test_force_flag(self, mock_ask: MagicMock) -> None:
+        _cmd_ask(["query", "-m", "sonar", "-s", "wiley", "--force"])
+        assert mock_ask.call_args.kwargs["force"] is True
+
 
 # ============================================================================
 # 3. pwm research - argument parsing

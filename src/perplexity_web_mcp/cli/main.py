@@ -99,7 +99,8 @@ def cli(ctx):
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
 @click.option("--no-citations", is_flag=True, help="Suppress citation URLs.")
 @click.option("--intent", default="standard", help="Routing intent: quick, standard, detailed, research.")
-def ask_cmd(query, model_name, thinking, source, json_output, no_citations, intent):
+@click.option("--force", is_flag=True, help="Bypass premium source quota checks (let server decide).")
+def ask_cmd(query, model_name, thinking, source, json_output, no_citations, intent, force):
     """Ask a question using Perplexity AI.
 
     \b
@@ -108,11 +109,11 @@ def ask_cmd(query, model_name, thinking, source, json_output, no_citations, inte
       pwm ask "latest AI news" -m gpt52 -s academic
       pwm ask "explain transformers" -m claude_sonnet --thinking
     """
-    code = _cmd_ask_impl(query, model_name, thinking, source, json_output, no_citations, intent)
+    code = _cmd_ask_impl(query, model_name, thinking, source, json_output, no_citations, intent, force)
     raise SystemExit(code)
 
 
-def _cmd_ask_impl(query, model_name, thinking, source, json_output, no_citations, intent):
+def _cmd_ask_impl(query, model_name, thinking, source, json_output, no_citations, intent, force=False):
     """Implementation for ask command (kept separate for testability)."""
     try:
         resolve_source_focus(source)
@@ -128,7 +129,7 @@ def _cmd_ask_impl(query, model_name, thinking, source, json_output, no_citations
                 return 1
 
             model = resolve_model(model_name, thinking=thinking)
-            result = ask(query, model, source)
+            result = ask(query, model, source, force=force)
 
             if json_output:
                 import orjson
@@ -750,6 +751,7 @@ def _cmd_ask(args: list[str]) -> int:
     json_output = False
     no_citations = False
     intent = "standard"
+    force = False
 
     i = 1
     while i < len(args):
@@ -772,11 +774,14 @@ def _cmd_ask(args: list[str]) -> int:
         elif arg == "--intent" and i + 1 < len(args):
             intent = args[i + 1]
             i += 2
+        elif arg == "--force":
+            force = True
+            i += 1
         else:
             print(f"Unknown option: {arg}", file=sys.stderr)
             return 1
 
-    return _cmd_ask_impl(query, model_name, thinking, source, json_output, no_citations, intent)
+    return _cmd_ask_impl(query, model_name, thinking, source, json_output, no_citations, intent, force)
 
 
 def _cmd_research(args: list[str]) -> int:

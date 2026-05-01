@@ -301,7 +301,7 @@ def _format_quota_footer(model: Model, resolved_sources: list[str] | None = None
     return "".join(parts)
 
 
-def ask(query: str, model: Model, source_focus: SourceFocusName = "web") -> str:
+def ask(query: str, model: Model, source_focus: SourceFocusName = "web", *, force: bool = False) -> str:
     """Execute a query with a specific model.
 
     Returns the answer text with citations appended.
@@ -315,7 +315,7 @@ def ask(query: str, model: Model, source_focus: SourceFocusName = "web") -> str:
     except ValueError as error:
         return _format_error(error)
 
-    limit_error = check_limits_before_query(model, resolved_sources=sources)
+    limit_error = check_limits_before_query(model, resolved_sources=None if force else sources)
     if limit_error:
         return limit_error
 
