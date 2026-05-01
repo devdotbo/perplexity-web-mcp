@@ -32,10 +32,7 @@ if TYPE_CHECKING:
 # Model and source focus mappings (single source of truth)
 # ---------------------------------------------------------------------------
 
-SOURCE_FOCUS_MAP: dict[str, list[str]] = {
-    name: COMMON_SOURCE_FOCUS_ALIASES[name]
-    for name in COMMON_SOURCE_FOCUS_NAMES
-}
+SOURCE_FOCUS_MAP: dict[str, list[str]] = {name: COMMON_SOURCE_FOCUS_ALIASES[name] for name in COMMON_SOURCE_FOCUS_NAMES}
 
 MODEL_MAP: dict[str, tuple[Model, Model | None]] = {
     # (base_model, thinking_model) - None if no thinking variant
@@ -167,12 +164,33 @@ def is_research_model(model: Model) -> bool:
     return model is Models.DEEP_RESEARCH
 
 
-def check_limits_before_query(model: Model) -> str | None:
-    """Always returns None — pre-flight blocking disabled.
+def check_limits_before_query(model: Model, resolved_sources: list[str] | None = None) -> str | None:
+    """Check premium source limits before executing a query.
 
-    Perplexity's rate-limit API reports 0 while the account still has quota,
-    so real 429s from the request are the authoritative signal instead.
+    Regular Pro/Research pre-flight blocking stays disabled because
+    Perplexity's rate-limit API can report 0 while the account still has quota.
+    Real 429s from the request are the authoritative signal for model quota.
     """
+    _ = model
+    if not resolved_sources:
+        return None
+
+    cache = get_limit_cache()
+    if cache is None:
+        return None
+
+    limits = cache.get_rate_limits()
+    if limits is None:
+        return None
+
+    for src_limit in limits.source_limits:
+        if src_limit.source_id in resolved_sources and not src_limit.is_unlimited and src_limit.is_exhausted:
+            return (
+                f"LIMIT REACHED: Source '{src_limit.source_id}' exhausted "
+                f"(0/{src_limit.monthly_limit} remaining).\n\n"
+                f"Remove this source from your query or wait for monthly reset."
+            )
+
     return None
 
 
@@ -193,8 +211,11 @@ def get_limit_context_for_error() -> str:
 # Core ask function (shared by MCP and CLI)
 # ---------------------------------------------------------------------------
 
+
 def _execute_query(
-    query: str, model: Model, sources: list[str],
+    query: str,
+    model: Model,
+    sources: list[str],
     search_focus: SearchFocus = SearchFocus.WEB,
 ) -> tuple[str, list[SearchResultItem]]:
     """Run a single query attempt. Returns (answer_text, search_results).
@@ -227,7 +248,7 @@ _MODEL_DISPLAY_NAMES: dict[str, str] = {
 }
 
 
-def _format_quota_footer(model: Model) -> str:
+def _format_quota_footer(model: Model, resolved_sources: list[str] | None = None) -> str:
     """Build a compact quota footer showing remaining limits after a query."""
     cache = get_limit_cache()
     if cache is None:
@@ -257,12 +278,25 @@ def _format_quota_footer(model: Model) -> str:
     if limits.remaining_pro > 0 and limits.remaining_pro / pro_max < 0.20:
         parts.append(
             " | WARNING: Pro quota running low"
-            " — prefer pplx_smart_query(intent='quick') or pplx_sonar for simple lookups"
+            " - prefer pplx_smart_query(intent='quick') or pplx_sonar for simple lookups"
         )
     elif limits.remaining_pro <= 0:
-        parts.append(
-            " | EXHAUSTED: Use pplx_smart_query(intent='quick') or pplx_sonar to avoid failures"
-        )
+        parts.append(" | EXHAUSTED: Use pplx_smart_query(intent='quick') or pplx_sonar to avoid failures")
+
+    # Source quota warnings
+    if resolved_sources and limits.source_limits:
+        for src_limit in limits.source_limits:
+            if (
+                src_limit.source_id in resolved_sources
+                and not src_limit.is_unlimited
+                and src_limit.monthly_limit
+                and src_limit.remaining is not None
+            ):
+                pct = src_limit.remaining / src_limit.monthly_limit
+                if pct < 0.20:
+                    parts.append(
+                        f" | WARNING: {src_limit.source_id} quota low ({src_limit.remaining}/{src_limit.monthly_limit})"
+                    )
 
     return "".join(parts)
 
@@ -281,7 +315,7 @@ def ask(query: str, model: Model, source_focus: SourceFocusName = "web") -> str:
     except ValueError as error:
         return _format_error(error)
 
-    limit_error = check_limits_before_query(model)
+    limit_error = check_limits_before_query(model, resolved_sources=sources)
     if limit_error:
         return limit_error
 
@@ -312,7 +346,7 @@ def ask(query: str, model: Model, source_focus: SourceFocusName = "web") -> str:
             url = result.url or ""
             response_parts.append(f"\n[{i}]: {url}")
 
-    response_parts.append(_format_quota_footer(model))
+    response_parts.append(_format_quota_footer(model, resolved_sources=sources))
 
     return "".join(response_parts)
 
@@ -402,6 +436,10 @@ def smart_ask(
 
     decision = _router.route(parsed_intent, limits)
 
+    limit_error = check_limits_before_query(decision.model, resolved_sources=sources)
+    if limit_error:
+        return SmartResponse(answer=limit_error, citations=[], routing=decision)
+
     try:
         answer, search_results = _execute_query(query, decision.model, sources, search_mode)
     except AuthenticationError:
@@ -414,17 +452,13 @@ def smart_ask(
             except (AuthenticationError, RateLimitError) as retry_err:
                 raise type(retry_err)(_format_error(retry_err)) from retry_err
             except Exception as retry_err:
-                return SmartResponse(
-                    answer=_format_error(retry_err), citations=[], routing=decision
-                )
+                return SmartResponse(answer=_format_error(retry_err), citations=[], routing=decision)
         else:
             raise
     except RateLimitError:
         raise
     except Exception as error:
-        return SmartResponse(
-            answer=_format_error(error), citations=[], routing=decision
-        )
+        return SmartResponse(answer=_format_error(error), citations=[], routing=decision)
 
     citations = [r.url or "" for r in search_results]
     return SmartResponse(answer=answer, citations=citations, routing=decision)
@@ -433,6 +467,7 @@ def smart_ask(
 # ---------------------------------------------------------------------------
 # Council ask (multi-model parallel query with synthesis)
 # ---------------------------------------------------------------------------
+
 
 def council_ask(
     query: str,

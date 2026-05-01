@@ -20,8 +20,8 @@ Subcommands:
 
 from __future__ import annotations
 
-import sys
 from importlib import metadata
+import sys
 from typing import NoReturn
 
 import rich_click as click
@@ -51,6 +51,7 @@ def _print_ai_docs(ctx, param, value):
     if not value or ctx.resilient_parsing:
         return
     from perplexity_web_mcp.cli.ai_doc import print_ai_doc
+
     print_ai_doc()
     ctx.exit(0)
 
@@ -65,11 +66,17 @@ def _print_version(ctx, param, value):
 
 
 @click.group(invoke_without_command=True)
-@click.option("--version", "-v", is_flag=True, callback=_print_version,
-              expose_value=False, is_eager=True, help="Show version.")
-@click.option("--ai", is_flag=True, callback=_print_ai_docs,
-              expose_value=False, is_eager=True,
-              help="Print AI-optimized documentation (for LLM agents).")
+@click.option(
+    "--version", "-v", is_flag=True, callback=_print_version, expose_value=False, is_eager=True, help="Show version."
+)
+@click.option(
+    "--ai",
+    is_flag=True,
+    callback=_print_ai_docs,
+    expose_value=False,
+    is_eager=True,
+    help="Print AI-optimized documentation (for LLM agents).",
+)
 @click.pass_context
 def cli(ctx):
     """pwm — Perplexity Web MCP CLI.
@@ -86,15 +93,12 @@ def cli(ctx):
 
 @cli.command()
 @click.argument("query")
-@click.option("-m", "--model", "model_name", default="auto",
-              help=f"Model to use ({', '.join(MODEL_NAMES)}).")
+@click.option("-m", "--model", "model_name", default="auto", help=f"Model to use ({', '.join(MODEL_NAMES)}).")
 @click.option("-t", "--thinking", is_flag=True, help="Enable extended thinking mode.")
-@click.option("-s", "--source", "source", default="web",
-              help=source_focus_help_text())
+@click.option("-s", "--source", "source", default="web", help=source_focus_help_text())
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
 @click.option("--no-citations", is_flag=True, help="Suppress citation URLs.")
-@click.option("--intent", default="standard",
-              help="Routing intent: quick, standard, detailed, research.")
+@click.option("--intent", default="standard", help="Routing intent: quick, standard, detailed, research.")
 def ask_cmd(query, model_name, thinking, source, json_output, no_citations, intent):
     """Ask a question using Perplexity AI.
 
@@ -171,8 +175,7 @@ def _cmd_ask_impl(query, model_name, thinking, source, json_output, no_citations
 
 @cli.command()
 @click.argument("query")
-@click.option("-s", "--source", "source", default="web",
-              help=source_focus_help_text())
+@click.option("-s", "--source", "source", default="web", help=source_focus_help_text())
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
 def research(query, source, json_output):
     """Deep research on a topic.
@@ -271,7 +274,9 @@ def _cmd_council_impl(query, models_str, source, synthesize, json_output, thinki
     model_names = [m.strip() for m in models_str.split(",") if m.strip()]
     for name in model_names:
         if name not in COUNCIL_MODEL_NAMES:
-            print(f"Error: Unknown council model '{name}'. Available: {', '.join(COUNCIL_MODEL_NAMES)}", file=sys.stderr)
+            print(
+                f"Error: Unknown council model '{name}'. Available: {', '.join(COUNCIL_MODEL_NAMES)}", file=sys.stderr
+            )
             return 1
 
     if len(model_names) < 2:
@@ -343,15 +348,18 @@ def _cmd_council_impl(query, models_str, source, synthesize, json_output, thinki
 
 
 @cli.command(name="sources")
-@click.option("--refresh", is_flag=True, help="Reserved for parity with pwm usage; source metadata is always fetched live.")
+@click.option(
+    "--refresh", is_flag=True, help="Reserved for parity with pwm usage; source metadata is always fetched live."
+)
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
-def sources(refresh, json_output):
+@click.option("--premium", is_flag=True, help="Show only premium sources with monthly limits.")
+def sources(refresh, json_output, premium):
     """List live sources/connectors available on the current account."""
-    code = _cmd_sources_impl(refresh, json_output)
+    code = _cmd_sources_impl(refresh, json_output, premium)
     raise SystemExit(code)
 
 
-def _cmd_sources_impl(refresh, json_output):
+def _cmd_sources_impl(refresh, json_output, premium=False):
     """Implementation for the sources command."""
     from rich.console import Console
     from rich.panel import Panel
@@ -362,8 +370,7 @@ def _cmd_sources_impl(refresh, json_output):
     if not token:
         console.print(
             Panel(
-                "[bold red]NOT AUTHENTICATED[/]\n\n"
-                "No session token found. Authenticate first with: [cyan]pwm login[/]",
+                "[bold red]NOT AUTHENTICATED[/]\n\nNo session token found. Authenticate first with: [cyan]pwm login[/]",
                 title="⚠️  Authentication Required",
             )
         )
@@ -373,6 +380,14 @@ def _cmd_sources_impl(refresh, json_output):
     if available is None:
         console.print("[red]ERROR:[/] Could not fetch available sources.")
         return 1
+
+    if premium:
+        from perplexity_web_mcp.sources import filter_premium_sources
+
+        available = filter_premium_sources(available)
+        if not available:
+            console.print("[yellow]No premium sources found on this account.[/]")
+            return 0
 
     if json_output:
         import orjson
@@ -385,7 +400,8 @@ def _cmd_sources_impl(refresh, json_output):
         sys.stdout.buffer.write(b"\n")
         return 0
 
-    table = Table(title="🔎 Available Sources", show_header=True, header_style="bold cyan")
+    title = "Premium Source Quotas" if premium else "Available Sources"
+    table = Table(title=title, show_header=True, header_style="bold cyan")
     table.add_column("Aliases", style="bold")
     table.add_column("Raw ID")
     table.add_column("Status")
@@ -473,8 +489,7 @@ def _cmd_usage_impl(refresh):
     if not token:
         console.print(
             Panel(
-                "[bold red]NOT AUTHENTICATED[/]\n\n"
-                "No session token found. Authenticate first with: [cyan]pwm login[/]",
+                "[bold red]NOT AUTHENTICATED[/]\n\nNo session token found. Authenticate first with: [cyan]pwm login[/]",
                 title="⚠️  Authentication Required",
             )
         )
@@ -505,6 +520,23 @@ def _cmd_usage_impl(refresh):
         table.add_row("Browser Agent", _color(limits.remaining_agentic_research))
 
         console.print(table)
+
+        # ── Source Limits (Premium) ───────────────────────────────────────
+        limited = [s for s in limits.source_limits if not s.is_unlimited and s.monthly_limit and s.monthly_limit > 0]
+        if limited:
+            src_table = Table(
+                title="Premium Source Limits",
+                show_header=True,
+                header_style="bold cyan",
+            )
+            src_table.add_column("Source", style="bold")
+            src_table.add_column("Remaining", justify="right")
+            src_table.add_column("Monthly Limit", justify="right")
+            for src in limited:
+                remaining = src.remaining if src.remaining is not None else "?"
+                colored = _color(remaining) if isinstance(remaining, int) else f"[yellow]{remaining}[/]"
+                src_table.add_row(src.source_id, colored, str(src.monthly_limit))
+            console.print(src_table)
     else:
         console.print("[yellow]WARNING:[/] Could not fetch rate limits (network error or token issue).")
 
@@ -694,6 +726,7 @@ def doctor(verbose):
 def _register_setup():
     """Register the setup subgroup from the setup module."""
     from perplexity_web_mcp.cli.setup import setup
+
     cli.add_command(setup)
 
 
@@ -780,10 +813,11 @@ def _cmd_usage(args: list[str]) -> int:
 
 
 def _cmd_sources(args: list[str]) -> int:
-    """Handle: pwm sources [--json] [--refresh] — legacy interface for tests."""
+    """Handle: pwm sources [--json] [--refresh] [--premium] — legacy interface for tests."""
     refresh = "--refresh" in args
     json_output = "--json" in args
-    return _cmd_sources_impl(refresh, json_output)
+    premium = "--premium" in args
+    return _cmd_sources_impl(refresh, json_output, premium)
 
 
 def _cmd_council(args: list[str]) -> int:

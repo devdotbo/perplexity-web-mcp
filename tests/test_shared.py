@@ -16,6 +16,7 @@ from perplexity_web_mcp.shared import (
     SOURCE_FOCUS_MAP,
     SOURCE_FOCUS_NAMES,
     ask,
+    check_limits_before_query,
     resolve_model,
     smart_ask,
 )
@@ -39,8 +40,17 @@ class TestMappings:
 
     def test_source_focus_map_has_all_expected_keys(self) -> None:
         expected = {
-            "none", "web", "academic", "social", "finance", "all",
-            "github", "wiley", "cbinsights", "pitchbook", "statista",
+            "none",
+            "web",
+            "academic",
+            "social",
+            "finance",
+            "all",
+            "github",
+            "wiley",
+            "cbinsights",
+            "pitchbook",
+            "statista",
         }
         assert set(SOURCE_FOCUS_MAP.keys()) == expected
 
@@ -286,9 +296,7 @@ class TestSmartAsk:
 
     @patch("perplexity_web_mcp.shared.get_limit_cache", return_value=None)
     @patch("perplexity_web_mcp.shared.get_client")
-    def test_returns_smart_response(
-        self, mock_client_fn: MagicMock, mock_cache: MagicMock
-    ) -> None:
+    def test_returns_smart_response(self, mock_client_fn: MagicMock, mock_cache: MagicMock) -> None:
         mock_conv = MagicMock()
         mock_conv.answer = "Smart answer"
         mock_conv.search_results = []
@@ -302,9 +310,7 @@ class TestSmartAsk:
 
     @patch("perplexity_web_mcp.shared.get_limit_cache", return_value=None)
     @patch("perplexity_web_mcp.shared.get_client")
-    def test_quick_intent_uses_sonar(
-        self, mock_client_fn: MagicMock, mock_cache: MagicMock
-    ) -> None:
+    def test_quick_intent_uses_sonar(self, mock_client_fn: MagicMock, mock_cache: MagicMock) -> None:
         mock_conv = MagicMock()
         mock_conv.answer = "Quick answer"
         mock_conv.search_results = []
@@ -317,9 +323,7 @@ class TestSmartAsk:
 
     @patch("perplexity_web_mcp.shared.get_limit_cache")
     @patch("perplexity_web_mcp.shared.get_client")
-    def test_downgrades_when_exhausted(
-        self, mock_client_fn: MagicMock, mock_cache_fn: MagicMock
-    ) -> None:
+    def test_downgrades_when_exhausted(self, mock_client_fn: MagicMock, mock_cache_fn: MagicMock) -> None:
         limits = RateLimits(remaining_pro=0, remaining_research=0)
         mock_cache = MagicMock()
         mock_cache.get_rate_limits.return_value = limits
@@ -338,9 +342,7 @@ class TestSmartAsk:
 
     @patch("perplexity_web_mcp.shared.get_limit_cache", return_value=None)
     @patch("perplexity_web_mcp.shared.get_client")
-    def test_error_returns_smart_response_with_error(
-        self, mock_client_fn: MagicMock, mock_cache: MagicMock
-    ) -> None:
+    def test_error_returns_smart_response_with_error(self, mock_client_fn: MagicMock, mock_cache: MagicMock) -> None:
         mock_client = MagicMock()
         mock_client.create_conversation.side_effect = RuntimeError("Boom")
         mock_client_fn.return_value = mock_client
@@ -353,9 +355,7 @@ class TestSmartAsk:
 
     @patch("perplexity_web_mcp.shared.get_limit_cache", return_value=None)
     @patch("perplexity_web_mcp.shared.get_client")
-    def test_invalid_intent_defaults_to_standard(
-        self, mock_client_fn: MagicMock, mock_cache: MagicMock
-    ) -> None:
+    def test_invalid_intent_defaults_to_standard(self, mock_client_fn: MagicMock, mock_cache: MagicMock) -> None:
         mock_conv = MagicMock()
         mock_conv.answer = "Fallback answer"
         mock_conv.search_results = []
@@ -368,9 +368,7 @@ class TestSmartAsk:
 
     @patch("perplexity_web_mcp.shared.get_limit_cache", return_value=None)
     @patch("perplexity_web_mcp.shared.get_client")
-    def test_none_source_uses_writing_mode(
-        self, mock_client_fn: MagicMock, mock_cache: MagicMock
-    ) -> None:
+    def test_none_source_uses_writing_mode(self, mock_client_fn: MagicMock, mock_cache: MagicMock) -> None:
         from perplexity_web_mcp.enums import SearchFocus
 
         mock_conv = MagicMock()
@@ -407,8 +405,11 @@ class TestAskErrorPropagation:
     @patch("perplexity_web_mcp.shared.reset_client")
     @patch("perplexity_web_mcp.shared.get_client")
     def test_auth_error_raises(
-        self, mock_client_fn: MagicMock, mock_reset: MagicMock,
-        mock_load: MagicMock, mock_limits: MagicMock,
+        self,
+        mock_client_fn: MagicMock,
+        mock_reset: MagicMock,
+        mock_load: MagicMock,
+        mock_limits: MagicMock,
     ) -> None:
         mock_client = MagicMock()
         mock_client.create_conversation.return_value.ask.side_effect = AuthenticationError()
@@ -420,7 +421,9 @@ class TestAskErrorPropagation:
     @patch("perplexity_web_mcp.shared.check_limits_before_query", return_value=None)
     @patch("perplexity_web_mcp.shared.get_client")
     def test_rate_limit_error_raises(
-        self, mock_client_fn: MagicMock, mock_limits: MagicMock,
+        self,
+        mock_client_fn: MagicMock,
+        mock_limits: MagicMock,
     ) -> None:
         mock_client = MagicMock()
         mock_client.create_conversation.return_value.ask.side_effect = RateLimitError()
@@ -433,7 +436,10 @@ class TestAskErrorPropagation:
     @patch("perplexity_web_mcp.shared.get_limit_cache", return_value=None)
     @patch("perplexity_web_mcp.shared.get_client")
     def test_generic_error_still_returns_string(
-        self, mock_client_fn: MagicMock, mock_cache: MagicMock, mock_limits: MagicMock,
+        self,
+        mock_client_fn: MagicMock,
+        mock_cache: MagicMock,
+        mock_limits: MagicMock,
     ) -> None:
         mock_client = MagicMock()
         mock_client.create_conversation.side_effect = RuntimeError("Network failure")
@@ -452,8 +458,11 @@ class TestSmartAskErrorPropagation:
     @patch("perplexity_web_mcp.shared.reset_client")
     @patch("perplexity_web_mcp.shared.get_client")
     def test_auth_error_raises(
-        self, mock_client_fn: MagicMock, mock_reset: MagicMock,
-        mock_load: MagicMock, mock_cache: MagicMock,
+        self,
+        mock_client_fn: MagicMock,
+        mock_reset: MagicMock,
+        mock_load: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
         mock_client = MagicMock()
         mock_client.create_conversation.return_value.ask.side_effect = AuthenticationError()
@@ -465,7 +474,9 @@ class TestSmartAskErrorPropagation:
     @patch("perplexity_web_mcp.shared.get_limit_cache", return_value=None)
     @patch("perplexity_web_mcp.shared.get_client")
     def test_rate_limit_error_raises(
-        self, mock_client_fn: MagicMock, mock_cache: MagicMock,
+        self,
+        mock_client_fn: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
         mock_client = MagicMock()
         mock_client.create_conversation.return_value.ask.side_effect = RateLimitError()
@@ -477,7 +488,9 @@ class TestSmartAskErrorPropagation:
     @patch("perplexity_web_mcp.shared.get_limit_cache", return_value=None)
     @patch("perplexity_web_mcp.shared.get_client")
     def test_generic_error_returns_smart_response(
-        self, mock_client_fn: MagicMock, mock_cache: MagicMock,
+        self,
+        mock_client_fn: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
         mock_client = MagicMock()
         mock_client.create_conversation.side_effect = RuntimeError("Boom")
@@ -502,10 +515,15 @@ class TestTokenRetryOnAuthError:
     @patch("perplexity_web_mcp.shared.reset_client")
     @patch("perplexity_web_mcp.shared.get_client")
     def test_ask_retries_when_token_changed(
-        self, mock_client_fn: MagicMock, mock_reset: MagicMock,
-        mock_load: MagicMock, mock_cache: MagicMock, mock_limits: MagicMock,
+        self,
+        mock_client_fn: MagicMock,
+        mock_reset: MagicMock,
+        mock_load: MagicMock,
+        mock_cache: MagicMock,
+        mock_limits: MagicMock,
     ) -> None:
         import perplexity_web_mcp.shared as shared
+
         shared._client_token = "old-stale-token"
 
         mock_conv_fail = MagicMock()
@@ -528,10 +546,14 @@ class TestTokenRetryOnAuthError:
     @patch("perplexity_web_mcp.shared.reset_client")
     @patch("perplexity_web_mcp.shared.get_client")
     def test_ask_does_not_retry_when_token_unchanged(
-        self, mock_client_fn: MagicMock, mock_reset: MagicMock,
-        mock_load: MagicMock, mock_limits: MagicMock,
+        self,
+        mock_client_fn: MagicMock,
+        mock_reset: MagicMock,
+        mock_load: MagicMock,
+        mock_limits: MagicMock,
     ) -> None:
         import perplexity_web_mcp.shared as shared
+
         shared._client_token = "same-token"
 
         mock_client = MagicMock()
@@ -546,10 +568,14 @@ class TestTokenRetryOnAuthError:
     @patch("perplexity_web_mcp.shared.reset_client")
     @patch("perplexity_web_mcp.shared.get_client")
     def test_smart_ask_retries_when_token_changed(
-        self, mock_client_fn: MagicMock, mock_reset: MagicMock,
-        mock_load: MagicMock, mock_cache: MagicMock,
+        self,
+        mock_client_fn: MagicMock,
+        mock_reset: MagicMock,
+        mock_load: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
         import perplexity_web_mcp.shared as shared
+
         shared._client_token = "old-stale-token"
 
         mock_conv_fail = MagicMock()
@@ -567,3 +593,92 @@ class TestTokenRetryOnAuthError:
         assert isinstance(result, SmartResponse)
         assert result.answer == "Retried smart answer"
         mock_reset.assert_called_once()
+
+
+# ============================================================================
+# 8. Pre-query source guard
+# ============================================================================
+
+
+class TestCheckLimitsSourceGuard:
+    """Verify check_limits_before_query blocks on exhausted premium sources."""
+
+    @patch("perplexity_web_mcp.shared.get_limit_cache")
+    def test_exhausted_source_returns_error(self, mock_cache_fn: MagicMock) -> None:
+        from perplexity_web_mcp.rate_limits import SourceLimit
+
+        mock_cache = MagicMock()
+        mock_cache.get_rate_limits.return_value = RateLimits(
+            remaining_pro=100,
+            remaining_research=5,
+            source_limits=[
+                SourceLimit(source_id="statista_mcp_cashmere", monthly_limit=50, remaining=0),
+            ],
+        )
+        mock_cache_fn.return_value = mock_cache
+
+        result = check_limits_before_query(Models.BEST, resolved_sources=["statista_mcp_cashmere"])
+        assert result is not None
+        assert "LIMIT REACHED" in result
+        assert "statista_mcp_cashmere" in result
+
+    @patch("perplexity_web_mcp.shared.get_limit_cache")
+    def test_healthy_source_returns_none(self, mock_cache_fn: MagicMock) -> None:
+        from perplexity_web_mcp.rate_limits import SourceLimit
+
+        mock_cache = MagicMock()
+        mock_cache.get_rate_limits.return_value = RateLimits(
+            remaining_pro=100,
+            remaining_research=5,
+            source_limits=[
+                SourceLimit(source_id="wiley_mcp_cashmere", monthly_limit=50, remaining=23),
+            ],
+        )
+        mock_cache_fn.return_value = mock_cache
+
+        result = check_limits_before_query(Models.BEST, resolved_sources=["wiley_mcp_cashmere"])
+        assert result is None
+
+    @patch("perplexity_web_mcp.shared.get_limit_cache")
+    def test_no_sources_skips_check(self, mock_cache_fn: MagicMock) -> None:
+        mock_cache = MagicMock()
+        mock_cache.get_rate_limits.return_value = RateLimits(remaining_pro=100, remaining_research=5)
+        mock_cache_fn.return_value = mock_cache
+
+        result = check_limits_before_query(Models.BEST, resolved_sources=None)
+        assert result is None
+
+    @patch("perplexity_web_mcp.shared.get_limit_cache")
+    def test_unlimited_source_never_blocks(self, mock_cache_fn: MagicMock) -> None:
+        from perplexity_web_mcp.rate_limits import SourceLimit
+
+        mock_cache = MagicMock()
+        mock_cache.get_rate_limits.return_value = RateLimits(
+            remaining_pro=100,
+            remaining_research=5,
+            source_limits=[
+                SourceLimit(source_id="web", monthly_limit=None, remaining=None),
+            ],
+        )
+        mock_cache_fn.return_value = mock_cache
+
+        result = check_limits_before_query(Models.BEST, resolved_sources=["web"])
+        assert result is None
+
+    @patch("perplexity_web_mcp.shared.get_limit_cache")
+    def test_source_not_in_query_not_blocked(self, mock_cache_fn: MagicMock) -> None:
+        from perplexity_web_mcp.rate_limits import SourceLimit
+
+        mock_cache = MagicMock()
+        mock_cache.get_rate_limits.return_value = RateLimits(
+            remaining_pro=100,
+            remaining_research=5,
+            source_limits=[
+                SourceLimit(source_id="statista_mcp_cashmere", monthly_limit=50, remaining=0),
+            ],
+        )
+        mock_cache_fn.return_value = mock_cache
+
+        # Query uses web, not statista -- should not block
+        result = check_limits_before_query(Models.BEST, resolved_sources=["web"])
+        assert result is None

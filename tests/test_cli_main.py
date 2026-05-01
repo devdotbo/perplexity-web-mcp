@@ -134,9 +134,7 @@ class TestCmdAsk:
 
     @patch("perplexity_web_mcp.cli.main.ask", return_value="response")
     @patch("perplexity_web_mcp.cli.main.resolve_model")
-    def test_model_and_thinking_flags(
-        self, mock_resolve: MagicMock, mock_ask: MagicMock
-    ) -> None:
+    def test_model_and_thinking_flags(self, mock_resolve: MagicMock, mock_ask: MagicMock) -> None:
         mock_resolve.return_value = MagicMock()
         _cmd_ask(["query", "-m", "gpt54", "-t"])
         mock_resolve.assert_called_once_with("gpt54", thinking=True)
@@ -169,6 +167,7 @@ class TestCmdResearch:
         assert "Research report" in capsys.readouterr().out
         # Should use DEEP_RESEARCH model
         from perplexity_web_mcp.models import Models
+
         assert mock_ask.call_args[0][1] is Models.DEEP_RESEARCH
 
     def test_no_query_returns_1(self, capsys: pytest.CaptureFixture) -> None:
@@ -193,9 +192,7 @@ class TestCmdUsage:
 
     @patch("perplexity_web_mcp.cli.main.get_limit_cache")
     @patch("perplexity_web_mcp.cli.main.load_token", return_value="valid-token")
-    def test_with_limits(
-        self, mock_token: MagicMock, mock_cache_fn: MagicMock, capsys: pytest.CaptureFixture
-    ) -> None:
+    def test_with_limits(self, mock_token: MagicMock, mock_cache_fn: MagicMock, capsys: pytest.CaptureFixture) -> None:
         from perplexity_web_mcp.rate_limits import RateLimits
 
         mock_cache = MagicMock()
@@ -209,6 +206,36 @@ class TestCmdUsage:
         out = capsys.readouterr().out
         assert "Rate Limits" in out
         assert "100" in out
+
+    @patch("perplexity_web_mcp.cli.main.get_limit_cache")
+    @patch("perplexity_web_mcp.cli.main.load_token", return_value="valid-token")
+    def test_usage_shows_source_limits(
+        self, mock_token: MagicMock, mock_cache_fn: MagicMock, capsys: pytest.CaptureFixture
+    ) -> None:
+        from perplexity_web_mcp.rate_limits import RateLimits, SourceLimit
+
+        mock_cache = MagicMock()
+        mock_cache.get_rate_limits.return_value = RateLimits(
+            remaining_pro=100,
+            remaining_research=5,
+            source_limits=[
+                SourceLimit(source_id="wiley_mcp_cashmere", monthly_limit=50, remaining=23),
+                SourceLimit(source_id="web", monthly_limit=None, remaining=None),
+                SourceLimit(source_id="box", monthly_limit=0, remaining=0),
+            ],
+        )
+        mock_cache.get_user_settings.return_value = None
+        mock_cache.get_credits.return_value = None
+        mock_cache_fn.return_value = mock_cache
+
+        code = _cmd_usage([])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "Premium Source Limits" in out
+        assert "wiley_mcp_cashmere" in out
+        assert "23" in out
+        # Unlimited and zero-limit sources should NOT appear
+        assert "web" not in out.split("Premium Source Limits")[1].split("Account")[0] if "Account" in out else True
 
 
 class TestCmdSources:
@@ -239,6 +266,67 @@ class TestCmdSources:
         data = orjson.loads(capsys.readouterr().out)
         assert "sources" in data
         assert data["sources"][0]["source_id"] == "github_mcp_direct"
+
+    @patch("perplexity_web_mcp.cli.main.fetch_available_sources")
+    @patch("perplexity_web_mcp.cli.main.load_token", return_value="valid-token")
+    def test_premium_flag_filters_sources(
+        self, mock_token: MagicMock, mock_fetch: MagicMock, capsys: pytest.CaptureFixture
+    ) -> None:
+        from perplexity_web_mcp.sources import AvailableSource
+
+        mock_fetch.return_value = [
+            AvailableSource(source_id="web", monthly_limit=None, remaining=None),
+            AvailableSource(source_id="wiley_mcp_cashmere", aliases=("wiley",), monthly_limit=50, remaining=23),
+            AvailableSource(source_id="box", monthly_limit=0, remaining=0),
+            AvailableSource(source_id="statista_mcp_cashmere", aliases=("statista",), monthly_limit=50, remaining=1),
+        ]
+
+        code = _cmd_sources(["--premium"])
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "wiley_mcp_cashmere" in out
+        assert "statista_mcp_cashmere" in out
+        # Only premium sources should appear; split rows by newlines
+        table_section = out.split("Premium Source Quotas")[1]
+        # "box" has 0 limit so should be excluded; "web" is unlimited
+        assert "│ box" not in table_section
+        # Check that web does not appear as its own row (it's a substring of cashmere names)
+        assert "│ web " not in table_section
+
+    @patch("perplexity_web_mcp.cli.main.fetch_available_sources")
+    @patch("perplexity_web_mcp.cli.main.load_token", return_value="valid-token")
+    def test_premium_flag_with_json(
+        self, mock_token: MagicMock, mock_fetch: MagicMock, capsys: pytest.CaptureFixture
+    ) -> None:
+        import orjson
+
+        from perplexity_web_mcp.sources import AvailableSource
+
+        mock_fetch.return_value = [
+            AvailableSource(source_id="web", monthly_limit=None, remaining=None),
+            AvailableSource(source_id="wiley_mcp_cashmere", aliases=("wiley",), monthly_limit=50, remaining=23),
+        ]
+
+        code = _cmd_sources(["--premium", "--json"])
+        assert code == 0
+        data = orjson.loads(capsys.readouterr().out)
+        assert len(data["sources"]) == 1
+        assert data["sources"][0]["source_id"] == "wiley_mcp_cashmere"
+
+    @patch("perplexity_web_mcp.cli.main.fetch_available_sources")
+    @patch("perplexity_web_mcp.cli.main.load_token", return_value="valid-token")
+    def test_premium_no_premium_sources(
+        self, mock_token: MagicMock, mock_fetch: MagicMock, capsys: pytest.CaptureFixture
+    ) -> None:
+        from perplexity_web_mcp.sources import AvailableSource
+
+        mock_fetch.return_value = [
+            AvailableSource(source_id="web", monthly_limit=None, remaining=None),
+        ]
+
+        code = _cmd_sources(["--premium"])
+        assert code == 0
+        assert "No premium sources" in capsys.readouterr().out
 
 
 # ============================================================================

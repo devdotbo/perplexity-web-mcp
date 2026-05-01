@@ -8,8 +8,10 @@ import pytest
 
 from perplexity_web_mcp.enums import SearchFocus
 from perplexity_web_mcp.sources import (
+    AvailableSource,
     aliases_for_source_id,
     fetch_available_sources,
+    filter_premium_sources,
     resolve_source_focus,
 )
 
@@ -106,3 +108,41 @@ class TestFetchAvailableSources:
         wiley = next(source for source in available if source.source_id == "wiley_mcp_cashmere")
         assert wiley.remaining == 23
         assert wiley.remaining_label == "23/50"
+
+
+class TestFilterPremiumSources:
+    """Verify premium source filtering and is_premium property."""
+
+    def test_is_premium_true_for_metered(self) -> None:
+        src = AvailableSource(source_id="wiley_mcp_cashmere", monthly_limit=50, remaining=23)
+        assert src.is_premium is True
+
+    def test_is_premium_false_for_unlimited(self) -> None:
+        src = AvailableSource(source_id="web", monthly_limit=None, remaining=None)
+        assert src.is_premium is False
+
+    def test_is_premium_false_for_zero_limit(self) -> None:
+        src = AvailableSource(source_id="box", monthly_limit=0, remaining=0)
+        assert src.is_premium is False
+
+    def test_filters_to_only_metered_sources(self) -> None:
+        sources = [
+            AvailableSource(source_id="web", monthly_limit=None, remaining=None),
+            AvailableSource(source_id="wiley_mcp_cashmere", monthly_limit=50, remaining=23),
+            AvailableSource(source_id="box", monthly_limit=0, remaining=0),
+            AvailableSource(source_id="statista_mcp_cashmere", monthly_limit=50, remaining=1),
+        ]
+        result = filter_premium_sources(sources)
+        assert len(result) == 2
+        assert result[0].source_id == "wiley_mcp_cashmere"
+        assert result[1].source_id == "statista_mcp_cashmere"
+
+    def test_empty_list_returns_empty(self) -> None:
+        assert filter_premium_sources([]) == []
+
+    def test_no_premium_returns_empty(self) -> None:
+        sources = [
+            AvailableSource(source_id="web", monthly_limit=None, remaining=None),
+            AvailableSource(source_id="scholar", monthly_limit=None, remaining=None),
+        ]
+        assert filter_premium_sources(sources) == []

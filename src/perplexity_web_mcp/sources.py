@@ -50,8 +50,7 @@ _CANONICAL_SEPARATORS = re.compile(r"[\s_-]+")
 _VALID_SOURCE_TOKEN = re.compile(r"^[A-Za-z0-9_-]+$")
 _SOURCE_SUFFIXES = ("_mcp_cashmere", "_mcp_direct", "_mcp_merge", "_alt")
 _COMMON_ALIAS_MAP_CANONICAL = {
-    re.sub(r"[\s_-]+", "", alias).lower(): values
-    for alias, values in COMMON_SOURCE_FOCUS_ALIASES.items()
+    re.sub(r"[\s_-]+", "", alias).lower(): values for alias, values in COMMON_SOURCE_FOCUS_ALIASES.items()
 }
 
 
@@ -124,6 +123,11 @@ class AvailableSource:
         return "available"
 
     @property
+    def is_premium(self) -> bool:
+        """Whether this source has a metered monthly limit (premium/paid connector)."""
+        return self.monthly_limit is not None and self.monthly_limit > 0
+
+    @property
     def remaining_label(self) -> str:
         if self.monthly_limit is None:
             return "unlimited"
@@ -143,6 +147,15 @@ class AvailableSource:
             "capabilities": list(self.capabilities),
             "status": self.status,
         }
+
+
+def filter_premium_sources(sources: list[AvailableSource]) -> list[AvailableSource]:
+    """Return only sources that have a monthly limit (premium/metered sources).
+
+    Excludes unlimited sources and sources with monthly_limit == 0
+    (disabled connectors like box, crunchbase).
+    """
+    return [s for s in sources if s.is_premium]
 
 
 def fetch_available_sources(token: str) -> list[AvailableSource] | None:
@@ -193,9 +206,11 @@ def fetch_available_sources(token: str) -> list[AvailableSource] | None:
         connector = connector_map.get(source_id, {})
         monthly_limit, remaining = limit_map.get(source_id, (None, None))
         capabilities = connector.get("capabilities", {})
-        capability_names = tuple(
-            sorted(name for name, enabled in capabilities.items() if enabled)
-        ) if isinstance(capabilities, dict) else ()
+        capability_names = (
+            tuple(sorted(name for name, enabled in capabilities.items() if enabled))
+            if isinstance(capabilities, dict)
+            else ()
+        )
 
         available.append(
             AvailableSource(
@@ -268,9 +283,7 @@ def resolve_source_focus(source_focus: str | Sequence[str]) -> tuple[list[str], 
             continue
 
         if not _VALID_SOURCE_TOKEN.fullmatch(raw_source):
-            raise ValueError(
-                f"Invalid source '{token}'. Use a common alias or raw source ID."
-            )
+            raise ValueError(f"Invalid source '{token}'. Use a common alias or raw source ID.")
         resolved.append(raw_source)
 
     seen: set[str] = set()

@@ -27,7 +27,7 @@ and only escalate when the query genuinely needs a premium model or Research.
 pplx_smart_query(
     query: str,                    # Required. The question to ask.
     intent: str = "standard",      # quick (1 Pro, Sonar 2), standard (1 Pro), detailed (1 Pro), research (1 Research)
-    source_focus: str = "web",     # none, web, academic, social, finance, all
+    source_focus: str = "web",     # none, web, academic, social, finance, all, github, wiley, cbinsights, pitchbook, statista (also accepts raw source IDs or comma-separated lists)
 ) -> str
 ```
 
@@ -44,7 +44,7 @@ pplx_query(
     model: str = "auto",           # auto, sonar, deep_research, gpt54, gpt55, claude_sonnet,
                                    # claude_opus, gemini_pro, nemotron, kimi_k26
     thinking: bool = False,        # Enable extended thinking (where supported)
-    source_focus: str = "web",     # none, web, academic, social, finance, all
+    source_focus: str = "web",     # none, web, academic, social, finance, all, github, wiley, cbinsights, pitchbook, statista (also accepts raw source IDs or comma-separated lists)
 ) -> str
 ```
 
@@ -56,7 +56,7 @@ For simple lookups, prefer `pplx_smart_query(intent='quick')` instead.
 ```
 pplx_ask(
     query: str,                    # Required. The question to ask.
-    source_focus: str = "web",     # none, web, academic, social, finance, all
+    source_focus: str = "web",     # none, web, academic, social, finance, all, github, wiley, cbinsights, pitchbook, statista (also accepts raw source IDs or comma-separated lists)
 ) -> str
 ```
 
@@ -68,7 +68,7 @@ typically 5-10 total). Only use when the user explicitly requests deep research.
 ```
 pplx_deep_research(
     query: str,                    # Required. The research topic.
-    source_focus: str = "web",     # none, web, academic, social, finance, all
+    source_focus: str = "web",     # none, web, academic, social, finance, all, github, wiley, cbinsights, pitchbook, statista (also accepts raw source IDs or comma-separated lists)
 ) -> str
 ```
 
@@ -79,7 +79,7 @@ All have the same signature and **each costs 1 Pro Search query**:
 ```
 pplx_<model>(
     query: str,                    # Required. The question to ask.
-    source_focus: str = "web",     # none, web, academic, social, finance, all
+    source_focus: str = "web",     # none, web, academic, social, finance, all, github, wiley, cbinsights, pitchbook, statista (also accepts raw source IDs or comma-separated lists)
 ) -> str
 ```
 
@@ -98,6 +98,34 @@ pplx_<model>(
 | `pplx_nemotron_thinking` | Nemotron 3 Super | Yes (always) | 1 Pro |
 | `pplx_kimi_k26` | Kimi K2.6 | No | 1 Pro |
 | `pplx_kimi_k26_thinking` | Kimi K2.6 | Yes | 1 Pro |
+
+## Sources Tool
+
+### pplx_sources
+
+List live Perplexity sources/connectors available on the current account.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `premium_only` | `bool` | `False` | Show only premium sources with monthly limits |
+
+Returns: Text listing all available sources with aliases, status, and remaining quota.
+Use `premium_only=True` to quickly check premium quota before using expensive sources.
+
+## Council Tool
+
+### pplx_council
+
+Query multiple models in parallel and synthesize results (Model Council).
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `query` | `str` | required | The question to ask |
+| `models` | `str` | `"gpt54,claude_opus,gemini_pro"` | Comma-separated model names |
+| `source_focus` | `str` | `"web"` | Source aliases, raw IDs, or comma-separated list |
+| `synthesize` | `bool` | `True` | Whether to synthesize responses |
+
+Returns: Individual model responses plus optional synthesis. Each council member costs 1 Pro Search.
 
 ## Usage Tool
 

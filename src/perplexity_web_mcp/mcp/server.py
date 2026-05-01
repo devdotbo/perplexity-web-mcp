@@ -33,13 +33,11 @@ mcp = FastMCP(
     "perplexity-web-mcp",
     instructions=(
         "Search the web with Perplexity AI. QUOTA IS LIMITED — read these rules.\n\n"
-
         "COST MODEL (critical):\n"
         "- pplx_sonar / pplx_smart_query(intent='quick'): Sonar 2 (in-house). Still uses your "
         "Perplexity session; limits depend on your plan — call pplx_usage() first.\n"
         "- pplx_ask / pplx_query / all model-specific tools: 1 PRO SEARCH each (weekly pool)\n"
         "- pplx_deep_research: 1 DEEP RESEARCH each (small monthly pool, ~5-10 total)\n\n"
-
         "MANDATORY PROTOCOL:\n"
         "1. On your FIRST query of the session, call pplx_usage() to check remaining quotas.\n"
         "2. DEFAULT to pplx_smart_query(intent='quick') for most lookups — it prefers Sonar 2 "
@@ -50,16 +48,19 @@ mcp = FastMCP(
         "autonomously without asking the user first.\n"
         "5. Avoid model-specific tools (pplx_gpt54, pplx_claude_sonnet, etc.) unless the "
         "user explicitly requests a specific model. Each call costs 1 Pro Search query.\n\n"
-
         "WHEN TO USE EACH INTENT:\n"
         "- quick: Facts, definitions, 'what is X', current date/weather, simple lookups\n"
         "- standard: How-to questions, comparisons, explanations needing web sources\n"
         "- detailed: Complex analysis, multi-source synthesis, technical deep-dives\n"
         "- research: Comprehensive reports (only when user explicitly asks for research)\n\n"
-
         f"All tools support source_focus aliases and raw source IDs. {source_focus_help_text()}\n"
         "Call pplx_sources() to inspect the live sources/connectors available on the account.\n\n"
-
+        "PREMIUM SOURCES (cbinsights, pitchbook, statista, wiley):\n"
+        "These have monthly limits. Do NOT use them by default.\n"
+        "1. Before using a premium source, call pplx_sources(premium_only=True) to check quota.\n"
+        "2. Inform the user of remaining quota and ASK permission before proceeding.\n"
+        "3. Only use premium sources when the query specifically needs their data type.\n"
+        "4. If a premium source is exhausted (0 remaining), do NOT include it.\n\n"
         "AUTHENTICATION: If you get a 403 error or 'token expired' message:\n"
         "1. pplx_auth_status — check current authentication status\n"
         "2. pplx_auth_request_code — send verification code to email\n"
@@ -293,10 +294,7 @@ def pplx_usage(refresh: bool = False) -> str:
     """
     token = load_token()
     if not token:
-        return (
-            "NOT AUTHENTICATED\n\n"
-            "No session token found. Authenticate first with pplx_auth_request_code."
-        )
+        return "NOT AUTHENTICATED\n\nNo session token found. Authenticate first with pplx_auth_request_code."
 
     cache = get_limit_cache()
     if cache is None:
@@ -330,31 +328,37 @@ def pplx_usage(refresh: bool = False) -> str:
 
 
 @mcp.tool
-def pplx_sources() -> str:
-    """List live Perplexity sources/connectors available on the current account."""
+def pplx_sources(premium_only: bool = False) -> str:
+    """List live Perplexity sources/connectors available on the current account.
+
+    Args:
+        premium_only: If True, show only premium sources with monthly limits
+                      (cbinsights, pitchbook, statista, wiley). Use this to
+                      quickly check premium quota before using expensive sources.
+    """
     token = load_token()
     if not token:
-        return (
-            "NOT AUTHENTICATED\n\n"
-            "No session token found. Authenticate first with pplx_auth_request_code."
-        )
+        return "NOT AUTHENTICATED\n\nNo session token found. Authenticate first with pplx_auth_request_code."
 
     available = fetch_available_sources(token)
     if available is None:
         return "ERROR: Could not fetch available sources."
 
+    if premium_only:
+        from perplexity_web_mcp.sources import filter_premium_sources
+
+        available = filter_premium_sources(available)
+
+    header = "PREMIUM SOURCES (metered)" if premium_only else "AVAILABLE SOURCES"
     lines = [
-        "AVAILABLE SOURCES",
+        header,
         "=" * 40,
         "Use source_focus with an alias below, a raw source ID, or a comma-separated list.",
         "",
     ]
     for source in available:
         aliases = ", ".join(source.aliases) if source.aliases else "—"
-        lines.append(
-            f"{aliases} -> {source.source_id} "
-            f"[{source.status}; {source.remaining_label}]"
-        )
+        lines.append(f"{aliases} -> {source.source_id} [{source.status}; {source.remaining_label}]")
     return "\n".join(lines)
 
 
@@ -369,11 +373,7 @@ _AUTH_SESSION_TTL: float = 600.0
 
 def _get_auth_session(email: str) -> dict | None:
     """Get stored auth session if it matches the email and is still fresh."""
-    if (
-        _auth_session
-        and _auth_session.get("email") == email
-        and (monotonic() - _auth_session_ts) < _AUTH_SESSION_TTL
-    ):
+    if _auth_session and _auth_session.get("email") == email and (monotonic() - _auth_session_ts) < _AUTH_SESSION_TTL:
         return _auth_session
     return None
 
