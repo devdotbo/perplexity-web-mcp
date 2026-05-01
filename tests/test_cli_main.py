@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from perplexity_web_mcp.cli.main import _cmd_ask, _cmd_council, _cmd_research, _cmd_usage, main
+from perplexity_web_mcp.cli.main import _cmd_ask, _cmd_council, _cmd_research, _cmd_sources, _cmd_usage, main
 from perplexity_web_mcp.exceptions import AuthenticationError, RateLimitError
 
 
@@ -62,6 +62,16 @@ class TestMainRouting:
             assert exc.value.code != 0
         assert "No such command" in capsys.readouterr().err
 
+    def test_login_help_clarifies_no_save_scope(self, capsys: pytest.CaptureFixture) -> None:
+        with patch.object(sys, "argv", ["pwm", "login", "--help"]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+            assert exc.value.code == 0
+
+        out = capsys.readouterr().out
+        assert "--no-save" in out
+        assert "non-interactive only" in out
+
 
 # ============================================================================
 # 2. pwm ask - argument parsing
@@ -93,10 +103,10 @@ class TestCmdAsk:
         assert code == 1
         assert "Unknown model" in capsys.readouterr().err
 
-    def test_unknown_source_returns_1(self, capsys: pytest.CaptureFixture) -> None:
-        code = _cmd_ask(["query", "--source", "badvalue"])
+    def test_invalid_source_returns_1(self, capsys: pytest.CaptureFixture) -> None:
+        code = _cmd_ask(["query", "--source", "none,web"])
         assert code == 1
-        assert "Unknown source" in capsys.readouterr().err
+        assert "cannot be combined" in capsys.readouterr().err
 
     def test_unknown_option_returns_1(self, capsys: pytest.CaptureFixture) -> None:
         code = _cmd_ask(["query", "--badopt"])
@@ -136,6 +146,12 @@ class TestCmdAsk:
         _cmd_ask(["query", "-m", "sonar", "-s", "academic"])
         call_args = mock_ask.call_args
         assert call_args[0][2] == "academic"
+
+    @patch("perplexity_web_mcp.cli.main.ask", return_value="response")
+    def test_raw_source_id_flag(self, mock_ask: MagicMock) -> None:
+        _cmd_ask(["query", "-m", "sonar", "-s", "github_mcp_direct"])
+        call_args = mock_ask.call_args
+        assert call_args[0][2] == "github_mcp_direct"
 
 
 # ============================================================================
@@ -193,6 +209,36 @@ class TestCmdUsage:
         out = capsys.readouterr().out
         assert "Rate Limits" in out
         assert "100" in out
+
+
+class TestCmdSources:
+    """Test _cmd_sources output."""
+
+    @patch("perplexity_web_mcp.cli.main.load_token", return_value=None)
+    def test_no_token_returns_1(self, mock_token: MagicMock, capsys: pytest.CaptureFixture) -> None:
+        code = _cmd_sources([])
+        assert code == 1
+        assert "NOT AUTHENTICATED" in capsys.readouterr().out
+
+    @patch("perplexity_web_mcp.cli.main.fetch_available_sources")
+    @patch("perplexity_web_mcp.cli.main.load_token", return_value="valid-token")
+    def test_sources_json_output(
+        self, mock_token: MagicMock, mock_fetch: MagicMock, capsys: pytest.CaptureFixture
+    ) -> None:
+        import orjson
+
+        from perplexity_web_mcp.sources import AvailableSource
+
+        mock_fetch.return_value = [
+            AvailableSource(source_id="github_mcp_direct", aliases=("github",), auth_type="oauth", connected=True),
+            AvailableSource(source_id="wiley_mcp_cashmere", aliases=("wiley",), monthly_limit=50, remaining=23),
+        ]
+
+        code = _cmd_sources(["--json"])
+        assert code == 0
+        data = orjson.loads(capsys.readouterr().out)
+        assert "sources" in data
+        assert data["sources"][0]["source_id"] == "github_mcp_direct"
 
 
 # ============================================================================
@@ -285,10 +331,10 @@ class TestCmdCouncil:
         assert code == 1
         assert "Unknown council model" in capsys.readouterr().err
 
-    def test_unknown_source_returns_1(self, capsys: pytest.CaptureFixture) -> None:
-        code = _cmd_council(["query", "--source", "badvalue"])
+    def test_invalid_source_returns_1(self, capsys: pytest.CaptureFixture) -> None:
+        code = _cmd_council(["query", "--source", "none,web"])
         assert code == 1
-        assert "Unknown source" in capsys.readouterr().err
+        assert "cannot be combined" in capsys.readouterr().err
 
     def test_unknown_option_returns_1(self, capsys: pytest.CaptureFixture) -> None:
         code = _cmd_council(["query", "--badopt"])
@@ -400,4 +446,3 @@ class TestCmdCouncilErrorHandling:
         assert code == 1
         err = capsys.readouterr().err
         assert "429" in err or "rate limit" in err.lower()
-

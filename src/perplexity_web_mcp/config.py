@@ -27,7 +27,7 @@ class ConversationConfig(BaseModel):
     citation_mode: CitationMode = CitationMode.CLEAN
     save_to_library: bool = False
     search_focus: SearchFocus = SearchFocus.WEB
-    source_focus: SourceFocus | list[SourceFocus] = SourceFocus.WEB
+    source_focus: SourceFocus | str | list[SourceFocus | str] = SourceFocus.WEB
     time_range: TimeRange = TimeRange.ALL
     language: str = "en-US"
     timezone: str | None = None

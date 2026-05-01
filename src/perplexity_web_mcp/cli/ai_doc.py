@@ -17,8 +17,9 @@ Perplexity Web MCP provides three interfaces to Perplexity AI:
   2. MCP Server        - 17 MCP tools for AI agents (pplx_* namespace)
   3. API Server        - Anthropic/OpenAI-compatible HTTP endpoints
 
-All three share the same backend, models, and authentication token stored at
-~/.config/perplexity-web-mcp/token.
+All three share the same backend, models, and authentication token. By
+default the token is stored at ~/.config/perplexity-web-mcp/token, and the CLI
+also honors PERPLEXITY_SESSION_TOKEN as a fallback.
 
 ================================================================================
 CLI COMMANDS (pwm)
@@ -29,7 +30,8 @@ AUTHENTICATION
   pwm login --check                   Check if authenticated (no login prompt)
   pwm login --email EMAIL             Send verification code (non-interactive)
   pwm login --email EMAIL --code CODE Complete auth with 6-digit code
-  pwm login --no-save                 Don't persist token to disk
+  pwm login --email EMAIL --code CODE --no-save
+                                      Complete auth without writing token to disk
 
 QUERYING
   pwm ask "query"                     Ask using auto-selected best model
@@ -50,6 +52,8 @@ QUERYING
     pwm ask "transformer improvements 2025" -s academic    # Scholarly papers
     pwm ask "best mechanical keyboard" -s social           # Reddit/Twitter
     pwm ask "Apple revenue Q4 2025" -s finance             # SEC EDGAR filings
+    pwm ask "What does this repo do?" -s github            # GitHub connector
+    pwm ask "AI market sizing" -s statista,pitchbook       # Multi-source query
     pwm ask "latest AI news" -s all                        # All sources combined
 
   Combined:
@@ -136,6 +140,16 @@ web         General web search (default)         News, general questions
 academic    Academic papers and scholarly articles  Research, citations, scientific topics
 social      Social media (Reddit, Twitter, etc.) Opinions, recommendations, community
 finance     SEC EDGAR filings                    Company financials, regulatory filings
+github      GitHub connector                     Repository/code search (requires account access)
+wiley       Wiley connector                      Wiley content on supported plans
+cbinsights  CB Insights connector                Private market intelligence on supported plans
+pitchbook   PitchBook connector                  Private market data on supported plans
+statista    Statista connector                   Market statistics on supported plans
+
+Raw source IDs and comma-separated lists are also accepted, e.g.:
+  pwm ask "..." -s github_mcp_direct
+  pwm ask "..." -s web,github
+  pwm sources                              # Inspect live sources on your account
 all         Web + Academic + Social combined      Broad coverage across all sources
 
 CLI examples:
@@ -196,8 +210,11 @@ QUERY TOOLS (each call costs 1 Pro Search query unless noted):
   pplx_kimi_k26(query, source_focus="web")        Kimi K2.6 — 1 Pro
   pplx_kimi_k26_thinking(query, source_focus)     Kimi K2.6 + thinking — 1 Pro
 
-  All query tools accept source_focus: "none", "web", "academic", "social",
-  "finance", "all". Use "none" for model-only queries without web search.
+  All query tools accept source_focus aliases plus raw source IDs and comma-
+  separated lists. Common aliases: "none", "web", "academic", "social",
+  "finance", "all", "github", "wiley", "cbinsights", "pitchbook", "statista".
+  Use "none" for model-only queries without web search. Use `pwm sources`
+  to inspect the live sources available on your account.
 
 USAGE TOOL (1):
   pplx_usage(refresh=False)
@@ -218,7 +235,7 @@ AUTH TOOLS (3):
 AUTHENTICATION
 ================================================================================
 
-Three ways to authenticate (all store token at ~/.config/perplexity-web-mcp/token):
+Three ways to authenticate:
 
 1. INTERACTIVE CLI (human at terminal):
    pwm login
@@ -226,11 +243,15 @@ Three ways to authenticate (all store token at ~/.config/perplexity-web-mcp/toke
 2. NON-INTERACTIVE CLI (AI agent with shell access):
    pwm login --email user@example.com          # Sends code
    pwm login --email user@example.com --code 123456  # Completes auth
+   pwm login --email user@example.com --code 123456 --no-save
+     # Completes auth without writing ~/.config/perplexity-web-mcp/token
 
 3. MCP TOOLS (AI agent without shell):
    pplx_auth_request_code(email="user@example.com")  # Sends code
    pplx_auth_complete(email="user@example.com", code="123456")  # Completes
 
+Default storage: ~/.config/perplexity-web-mcp/token
+Env fallback: PERPLEXITY_SESSION_TOKEN
 Tokens last ~30 days. Re-authenticate when you get 403 errors.
 Check status: pwm login --check  OR  pplx_auth_status()
 

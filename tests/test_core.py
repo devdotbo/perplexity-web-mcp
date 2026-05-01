@@ -217,6 +217,13 @@ class TestBuildPayload:
 
         assert payload["params"]["sources"] == ["web", "scholar"]
 
+    def test_source_focus_accepts_raw_source_ids(self) -> None:
+        config = ConversationConfig(source_focus=["web", "github_mcp_direct"])
+        conv = self._conv(config)
+        payload = conv._build_payload("q", Models.BEST, [])
+
+        assert payload["params"]["sources"] == ["web", "github_mcp_direct"]
+
     def test_followup_includes_uuid_and_token(self) -> None:
         from perplexity_web_mcp.types import Coordinates
 

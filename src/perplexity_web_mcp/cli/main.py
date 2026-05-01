@@ -9,6 +9,7 @@ Subcommands:
     pwm research "q"    Deep research on a topic
     pwm api             Start the Anthropic/OpenAI API-compatible server
     pwm usage           Check remaining rate limits and quotas
+    pwm sources         List live sources/connectors available on the account
     pwm hack claude     Launch Claude Code connected to Perplexity models
     pwm skill           Manage skill installation across AI platforms
     pwm doctor          Diagnose installation, auth, config, and limits
@@ -38,6 +39,7 @@ from perplexity_web_mcp.shared import (
     get_limit_cache,
     resolve_model,
 )
+from perplexity_web_mcp.sources import fetch_available_sources, resolve_source_focus, source_focus_help_text
 from perplexity_web_mcp.token_store import load_token
 
 
@@ -88,7 +90,7 @@ def cli(ctx):
               help=f"Model to use ({', '.join(MODEL_NAMES)}).")
 @click.option("-t", "--thinking", is_flag=True, help="Enable extended thinking mode.")
 @click.option("-s", "--source", "source", default="web",
-              help=f"Source focus ({', '.join(SOURCE_FOCUS_NAMES)}).")
+              help=source_focus_help_text())
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
 @click.option("--no-citations", is_flag=True, help="Suppress citation URLs.")
 @click.option("--intent", default="standard",
@@ -108,8 +110,10 @@ def ask_cmd(query, model_name, thinking, source, json_output, no_citations, inte
 
 def _cmd_ask_impl(query, model_name, thinking, source, json_output, no_citations, intent):
     """Implementation for ask command (kept separate for testability)."""
-    if source not in SOURCE_FOCUS_NAMES:
-        print(f"Error: Unknown source '{source}'. Available: {', '.join(SOURCE_FOCUS_NAMES)}", file=sys.stderr)
+    try:
+        resolve_source_focus(source)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
 
     try:
@@ -168,7 +172,7 @@ def _cmd_ask_impl(query, model_name, thinking, source, json_output, no_citations
 @cli.command()
 @click.argument("query")
 @click.option("-s", "--source", "source", default="web",
-              help=f"Source focus ({', '.join(SOURCE_FOCUS_NAMES)}).")
+              help=source_focus_help_text())
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
 def research(query, source, json_output):
     """Deep research on a topic.
@@ -186,6 +190,12 @@ def research(query, source, json_output):
 
 def _cmd_research_impl(query, source, json_output):
     """Implementation for research command."""
+    try:
+        resolve_source_focus(source)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
     model = Models.DEEP_RESEARCH
 
     try:
@@ -226,7 +236,7 @@ COUNCIL_MODEL_NAMES = ("gpt54", "gpt55", "claude_sonnet", "claude_opus", "gemini
               help=f"Comma-separated models ({', '.join(COUNCIL_MODEL_NAMES)}).")
 @click.option("-t", "--thinking", is_flag=True, help="Enable extended thinking mode.")
 @click.option("-s", "--source", "source", default="web",
-              help=f"Source focus ({', '.join(SOURCE_FOCUS_NAMES)}).")
+              help=source_focus_help_text())
 @click.option("--no-synthesis", is_flag=True, help="Skip consensus synthesis.")
 @click.option("--chairman", default="sonar",
               help=f"Synthesis model (default: sonar / Sonar 2). Non-sonar costs 1 extra Pro Search. ({', '.join(MODEL_NAMES)})")
@@ -251,8 +261,10 @@ def council(query, models_str, thinking, source, no_synthesis, chairman, json_ou
 
 def _cmd_council_impl(query, models_str, source, synthesize, json_output, thinking=False, chairman="sonar"):
     """Implementation for council command."""
-    if source not in SOURCE_FOCUS_NAMES:
-        print(f"Error: Unknown source '{source}'. Available: {', '.join(SOURCE_FOCUS_NAMES)}", file=sys.stderr)
+    try:
+        resolve_source_focus(source)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
         return 1
 
     # Validate model names
@@ -327,6 +339,70 @@ def _cmd_council_impl(query, models_str, source, synthesize, json_output, thinki
     return 0
 
 
+# ── Sources ────────────────────────────────────────────────────────────────
+
+
+@cli.command(name="sources")
+@click.option("--refresh", is_flag=True, help="Reserved for parity with pwm usage; source metadata is always fetched live.")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON.")
+def sources(refresh, json_output):
+    """List live sources/connectors available on the current account."""
+    code = _cmd_sources_impl(refresh, json_output)
+    raise SystemExit(code)
+
+
+def _cmd_sources_impl(refresh, json_output):
+    """Implementation for the sources command."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+
+    console = Console()
+    token = load_token()
+    if not token:
+        console.print(
+            Panel(
+                "[bold red]NOT AUTHENTICATED[/]\n\n"
+                "No session token found. Authenticate first with: [cyan]pwm login[/]",
+                title="⚠️  Authentication Required",
+            )
+        )
+        return 1
+
+    available = fetch_available_sources(token)
+    if available is None:
+        console.print("[red]ERROR:[/] Could not fetch available sources.")
+        return 1
+
+    if json_output:
+        import orjson
+
+        payload = {
+            "common_aliases": SOURCE_FOCUS_NAMES,
+            "sources": [source.to_dict() for source in available],
+        }
+        sys.stdout.buffer.write(orjson.dumps(payload, option=orjson.OPT_INDENT_2))
+        sys.stdout.buffer.write(b"\n")
+        return 0
+
+    table = Table(title="🔎 Available Sources", show_header=True, header_style="bold cyan")
+    table.add_column("Aliases", style="bold")
+    table.add_column("Raw ID")
+    table.add_column("Status")
+    table.add_column("Remaining", justify="right")
+
+    for source in available:
+        aliases = ", ".join(source.aliases) if source.aliases else "—"
+        table.add_row(aliases, source.source_id, source.status, source.remaining_label)
+
+    console.print(table)
+    console.print(
+        "[dim]Use -s with an alias above, a raw source ID, or a comma-separated list such as "
+        "'web,github' or 'academic,wiley'.[/]"
+    )
+    return 0
+
+
 # ── Login ──────────────────────────────────────────────────────────────────
 
 
@@ -334,7 +410,7 @@ def _cmd_council_impl(query, models_str, source, synthesize, json_output, thinki
 @click.option("--check", is_flag=True, help="Check current auth status (no login prompt).")
 @click.option("--email", default=None, help="Send verification code to email (non-interactive).")
 @click.option("--code", default=None, help="Complete auth with 6-digit code from email.")
-@click.option("--no-save", is_flag=True, help="Don't save token to config.")
+@click.option("--no-save", is_flag=True, help="Don't save token to config (non-interactive only).")
 @click.pass_context
 def login(ctx, check, email, code, no_save):
     """Authenticate with Perplexity.
@@ -345,6 +421,7 @@ def login(ctx, check, email, code, no_save):
       pwm login --check                            # Check current auth status
       pwm login --email user@example.com           # Send verification code
       pwm login --email user@example.com --code 123456  # Complete auth
+      pwm login --email user@example.com --code 123456 --no-save  # Complete auth without saving
     """
     from perplexity_web_mcp.cli.auth import main as auth_main
 
@@ -700,6 +777,13 @@ def _cmd_usage(args: list[str]) -> int:
     """Handle: pwm usage [--refresh] — legacy interface for tests."""
     refresh = "--refresh" in args
     return _cmd_usage_impl(refresh)
+
+
+def _cmd_sources(args: list[str]) -> int:
+    """Handle: pwm sources [--json] [--refresh] — legacy interface for tests."""
+    refresh = "--refresh" in args
+    json_output = "--json" in args
+    return _cmd_sources_impl(refresh, json_output)
 
 
 def _cmd_council(args: list[str]) -> int:

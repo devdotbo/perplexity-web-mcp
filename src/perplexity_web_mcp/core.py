@@ -347,9 +347,11 @@ class Conversation:
     ) -> dict[str, Any]:
         cfg = self._config
 
-        sources = (
-            [s.value for s in cfg.source_focus] if isinstance(cfg.source_focus, list) else [cfg.source_focus.value]
-        )
+        raw_sources = cfg.source_focus if isinstance(cfg.source_focus, list) else [cfg.source_focus]
+        sources = [
+            source.value if hasattr(source, "value") else str(source)
+            for source in raw_sources
+        ]
 
         client_coordinates = None
         if cfg.coordinates is not None:

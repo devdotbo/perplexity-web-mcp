@@ -24,6 +24,7 @@ from perplexity_web_mcp.shared import (
     resolve_model,
     smart_ask,
 )
+from perplexity_web_mcp.sources import fetch_available_sources, source_focus_help_text
 from perplexity_web_mcp.token_store import load_token, save_token
 
 
@@ -56,8 +57,8 @@ mcp = FastMCP(
         "- detailed: Complex analysis, multi-source synthesis, technical deep-dives\n"
         "- research: Comprehensive reports (only when user explicitly asks for research)\n\n"
 
-        "All tools support source_focus: none, web, academic, social, finance, all.\n"
-        "Use source_focus='none' for model-only queries without web search.\n\n"
+        f"All tools support source_focus aliases and raw source IDs. {source_focus_help_text()}\n"
+        "Call pplx_sources() to inspect the live sources/connectors available on the account.\n\n"
 
         "AUTHENTICATION: If you get a 403 error or 'token expired' message:\n"
         "1. pplx_auth_status — check current authentication status\n"
@@ -90,8 +91,7 @@ def pplx_query(
                claude_sonnet, claude_opus, gemini_pro, nemotron, kimi_k26
         thinking: Enable extended thinking mode (available for gpt54, gpt55, claude_sonnet,
                   claude_opus, kimi_k26; always on for gemini_pro and nemotron)
-        source_focus: Source type - none (model only, no search), web, academic,
-                      social, finance, all
+        source_focus: Source aliases, raw source IDs, or comma-separated source list
     """
     selected_model = resolve_model(model, thinking=thinking)
     return ask(query, selected_model, source_focus)
@@ -211,8 +211,7 @@ def pplx_smart_query(
     Args:
         query: The question to ask
         intent: Query complexity — quick (default for most), standard, detailed, research
-        source_focus: Source type — none (model only, no search), web, academic,
-                      social, finance, all
+        source_focus: Source aliases, raw source IDs, or comma-separated source list
     """
     result = smart_ask(query, intent=intent, source_focus=source_focus)
     return result.format_response()
@@ -240,7 +239,7 @@ def pplx_council(
 
     Args:
         query: The question to ask all council models
-        source_focus: Source type for all models (none/web/academic/social/finance/all)
+        source_focus: Source aliases, raw source IDs, or comma-separated source list
         models: Comma-separated model names to use as council members.
                 Available: gpt54, gpt55, claude_sonnet, claude_opus, gemini_pro, nemotron, kimi_k26.
                 Default: "gpt54,claude_opus,gemini_pro" (3 models + synthesis = 4 Pro Searches)
@@ -328,6 +327,35 @@ def pplx_usage(refresh: bool = False) -> str:
         parts.append(credits.format_summary())
 
     return "\n".join(parts)
+
+
+@mcp.tool
+def pplx_sources() -> str:
+    """List live Perplexity sources/connectors available on the current account."""
+    token = load_token()
+    if not token:
+        return (
+            "NOT AUTHENTICATED\n\n"
+            "No session token found. Authenticate first with pplx_auth_request_code."
+        )
+
+    available = fetch_available_sources(token)
+    if available is None:
+        return "ERROR: Could not fetch available sources."
+
+    lines = [
+        "AVAILABLE SOURCES",
+        "=" * 40,
+        "Use source_focus with an alias below, a raw source ID, or a comma-separated list.",
+        "",
+    ]
+    for source in available:
+        aliases = ", ".join(source.aliases) if source.aliases else "—"
+        lines.append(
+            f"{aliases} -> {source.source_id} "
+            f"[{source.status}; {source.remaining_label}]"
+        )
+    return "\n".join(lines)
 
 
 # =============================================================================

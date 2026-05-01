@@ -8,14 +8,19 @@ Both the MCP server (mcp/server.py) and CLI (cli/main.py) import from here.
 from __future__ import annotations
 
 from threading import Lock
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from .config import ClientConfig, ConversationConfig
 from .core import Perplexity
-from .enums import CitationMode, SearchFocus, SourceFocus
+from .enums import CitationMode, SearchFocus
 from .models import Model, Models
 from .rate_limits import RateLimitCache
 from .router import Intent, SmartResponse, SmartRouter
+from .sources import (
+    COMMON_SOURCE_FOCUS_ALIASES,
+    COMMON_SOURCE_FOCUS_NAMES,
+    resolve_source_focus,
+)
 from .token_store import get_token_or_raise, load_token
 
 
@@ -27,13 +32,9 @@ if TYPE_CHECKING:
 # Model and source focus mappings (single source of truth)
 # ---------------------------------------------------------------------------
 
-SOURCE_FOCUS_MAP: dict[str, list[SourceFocus]] = {
-    "none": [],
-    "web": [SourceFocus.WEB],
-    "academic": [SourceFocus.ACADEMIC],
-    "social": [SourceFocus.SOCIAL],
-    "finance": [SourceFocus.FINANCE],
-    "all": [SourceFocus.WEB, SourceFocus.ACADEMIC, SourceFocus.SOCIAL],
+SOURCE_FOCUS_MAP: dict[str, list[str]] = {
+    name: COMMON_SOURCE_FOCUS_ALIASES[name]
+    for name in COMMON_SOURCE_FOCUS_NAMES
 }
 
 MODEL_MAP: dict[str, tuple[Model, Model | None]] = {
@@ -50,14 +51,11 @@ MODEL_MAP: dict[str, tuple[Model, Model | None]] = {
     "kimi_k26": (Models.KIMI_K2_6, Models.KIMI_K2_6_THINKING),
 }
 
-SourceFocusName = Literal["none", "web", "academic", "social", "finance", "all"]
-ModelName = Literal[
-    "auto", "sonar", "deep_research", "gpt54", "gpt55", "claude_sonnet",
-    "claude_opus", "gemini_pro", "nemotron", "kimi_k26",
-]
+SourceFocusName = str
+ModelName = str
 
 MODEL_NAMES: list[str] = list(MODEL_MAP.keys())
-SOURCE_FOCUS_NAMES: list[str] = list(SOURCE_FOCUS_MAP.keys())
+SOURCE_FOCUS_NAMES: list[str] = COMMON_SOURCE_FOCUS_NAMES.copy()
 
 COUNCIL_DISPLAY_NAMES: dict[str, str] = {
     "auto": "Auto (Best)",
@@ -196,7 +194,7 @@ def get_limit_context_for_error() -> str:
 # ---------------------------------------------------------------------------
 
 def _execute_query(
-    query: str, model: Model, sources: list[SourceFocus],
+    query: str, model: Model, sources: list[str],
     search_focus: SearchFocus = SearchFocus.WEB,
 ) -> tuple[str, list[SearchResultItem]]:
     """Run a single query attempt. Returns (answer_text, search_results).
@@ -278,8 +276,14 @@ def ask(query: str, model: Model, source_focus: SourceFocusName = "web") -> str:
     """
     from .exceptions import AuthenticationError, RateLimitError
 
-    sources = SOURCE_FOCUS_MAP.get(source_focus, [SourceFocus.WEB])
-    search_mode = SearchFocus.WRITING if source_focus == "none" else SearchFocus.WEB
+    try:
+        sources, search_mode = resolve_source_focus(source_focus)
+    except ValueError as error:
+        return _format_error(error)
+
+    limit_error = check_limits_before_query(model)
+    if limit_error:
+        return limit_error
 
     try:
         answer, search_results = _execute_query(query, model, sources, search_mode)
@@ -383,6 +387,11 @@ def smart_ask(
     """
     from .exceptions import AuthenticationError, RateLimitError
 
+    try:
+        sources, search_mode = resolve_source_focus(source_focus)
+    except ValueError as error:
+        return SmartResponse(answer=_format_error(error), citations=[], routing=_router.route(Intent.STANDARD, None))
+
     cache = get_limit_cache()
     limits = cache.get_rate_limits() if cache else None
 
@@ -392,8 +401,6 @@ def smart_ask(
         parsed_intent = Intent.STANDARD
 
     decision = _router.route(parsed_intent, limits)
-    sources = SOURCE_FOCUS_MAP.get(source_focus, [SourceFocus.WEB])
-    search_mode = SearchFocus.WRITING if source_focus == "none" else SearchFocus.WEB
 
     try:
         answer, search_results = _execute_query(query, decision.model, sources, search_mode)

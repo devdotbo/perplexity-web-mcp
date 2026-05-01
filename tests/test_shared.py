@@ -38,7 +38,10 @@ class TestMappings:
         assert MODEL_NAMES == list(MODEL_MAP.keys())
 
     def test_source_focus_map_has_all_expected_keys(self) -> None:
-        expected = {"none", "web", "academic", "social", "finance", "all"}
+        expected = {
+            "none", "web", "academic", "social", "finance", "all",
+            "github", "wiley", "cbinsights", "pitchbook", "statista",
+        }
         assert set(SOURCE_FOCUS_MAP.keys()) == expected
 
     def test_source_focus_names_matches_map_keys(self) -> None:
@@ -234,6 +237,44 @@ class TestAsk:
         config = mock_client.create_conversation.call_args[0][0]
         assert config.search_focus == SearchFocus.WEB
 
+    @patch("perplexity_web_mcp.shared.check_limits_before_query", return_value=None)
+    @patch("perplexity_web_mcp.shared.get_limit_cache", return_value=None)
+    @patch("perplexity_web_mcp.shared.get_client")
+    def test_github_alias_resolves_to_raw_source_id(
+        self, mock_client_fn: MagicMock, mock_cache: MagicMock, mock_limits: MagicMock
+    ) -> None:
+        mock_conv = MagicMock()
+        mock_conv.answer = "GitHub answer"
+        mock_conv.search_results = []
+        mock_client = MagicMock()
+        mock_client.create_conversation.return_value = mock_conv
+        mock_client_fn.return_value = mock_client
+
+        result = ask("question", Models.BEST, "github")
+        assert result == "GitHub answer"
+
+        config = mock_client.create_conversation.call_args[0][0]
+        assert config.source_focus == ["github_mcp_direct"]
+
+    @patch("perplexity_web_mcp.shared.check_limits_before_query", return_value=None)
+    @patch("perplexity_web_mcp.shared.get_limit_cache", return_value=None)
+    @patch("perplexity_web_mcp.shared.get_client")
+    def test_comma_separated_sources_resolve(
+        self, mock_client_fn: MagicMock, mock_cache: MagicMock, mock_limits: MagicMock
+    ) -> None:
+        mock_conv = MagicMock()
+        mock_conv.answer = "Combined answer"
+        mock_conv.search_results = []
+        mock_client = MagicMock()
+        mock_client.create_conversation.return_value = mock_conv
+        mock_client_fn.return_value = mock_client
+
+        result = ask("question", Models.BEST, "web,github")
+        assert result == "Combined answer"
+
+        config = mock_client.create_conversation.call_args[0][0]
+        assert config.source_focus == ["web", "github_mcp_direct"]
+
 
 # ============================================================================
 # 4. smart_ask function (mocked)
@@ -346,6 +387,10 @@ class TestSmartAsk:
         config = mock_client.create_conversation.call_args[0][0]
         assert config.search_focus == SearchFocus.WRITING
         assert config.source_focus == []
+
+    def test_invalid_source_returns_error(self) -> None:
+        result = smart_ask("question", source_focus="none,web")
+        assert "Error" in result.answer
 
 
 # ============================================================================
