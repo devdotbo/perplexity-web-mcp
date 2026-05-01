@@ -7,8 +7,9 @@ Both the MCP server (mcp/server.py) and CLI (cli/main.py) import from here.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from threading import Lock
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from .config import ClientConfig, ConversationConfig
 from .core import Perplexity
@@ -25,6 +26,7 @@ from .token_store import get_token_or_raise, load_token
 
 
 if TYPE_CHECKING:
+    from .council import CouncilResponse
     from .types import SearchResultItem
 
 
@@ -108,10 +110,8 @@ def get_client() -> Perplexity:
     with _client_lock:
         if _client is None or _client_token != token:
             if _client is not None:
-                try:
+                with suppress(Exception):
                     _client.close()
-                except Exception:
-                    pass
             config = ClientConfig(
                 rotate_fingerprint=False,
                 requests_per_second=0,
@@ -127,10 +127,8 @@ def reset_client() -> None:
 
     with _client_lock:
         if _client is not None:
-            try:
+            with suppress(Exception):
                 _client.close()
-            except Exception:
-                pass
         _client = None
         _client_token = None
 
@@ -308,7 +306,7 @@ def ask(query: str, model: Model, source_focus: SourceFocusName = "web", *, forc
     Raises AuthenticationError or RateLimitError on auth/rate-limit failures
     so MCP servers can signal isError:true to clients.
     """
-    from .exceptions import AuthenticationError, RateLimitError
+    from .exceptions import AuthenticationError, RateLimitError  # noqa: PLC0415
 
     try:
         sources, search_mode = resolve_source_focus(source_focus)
@@ -365,17 +363,14 @@ def _format_error(error: Exception) -> str:
 
     token_status = ""
     if is_auth_error or is_rate_limit:
-        from .cli.auth import get_user_info
+        from .cli.auth import get_user_info  # noqa: PLC0415
 
         token = load_token()
         if not token:
             token_status = "No token found"
         else:
             user_info = get_user_info(token)
-            if user_info:
-                token_status = f"Token valid for {user_info.email}"
-            else:
-                token_status = "Token exists but invalid"
+            token_status = f"Token valid for {user_info.email}" if user_info else "Token exists but invalid"
 
     limit_context = get_limit_context_for_error()
 
@@ -419,7 +414,7 @@ def smart_ask(
     Raises AuthenticationError or RateLimitError so MCP servers can signal
     isError:true to clients.
     """
-    from .exceptions import AuthenticationError, RateLimitError
+    from .exceptions import AuthenticationError, RateLimitError  # noqa: PLC0415
 
     try:
         sources, search_mode = resolve_source_focus(source_focus)
@@ -476,7 +471,7 @@ def council_ask(
     synthesize: bool = True,
     thinking: bool = False,
     synthesis_model: Model | None = None,
-) -> "CouncilResponse":
+) -> CouncilResponse:
     """Query multiple models in parallel and optionally synthesize results.
 
     Args:
@@ -491,7 +486,7 @@ def council_ask(
     Returns:
         CouncilResponse with individual results and optional synthesis.
     """
-    from .council import CouncilResponse, council_ask as _council_ask
+    from .council import council_ask as _council_ask  # noqa: PLC0415
 
     return _council_ask(
         query=query,

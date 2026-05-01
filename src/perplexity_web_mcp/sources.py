@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 import re
-from typing import Any, Sequence
+from typing import Any
 
 from .constants import API_BASE_URL, ENDPOINT_USER_SETTINGS
 from .enums import SearchFocus, SourceFocus
@@ -91,10 +92,10 @@ def aliases_for_source_id(source_id: str) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
     for alias in aliases:
-        alias = alias.strip()
-        if alias and alias not in seen:
-            seen.add(alias)
-            ordered.append(alias)
+        alias_text = alias.strip()
+        if alias_text and alias_text not in seen:
+            seen.add(alias_text)
+            ordered.append(alias_text)
     return ordered
 
 
@@ -267,7 +268,7 @@ def resolve_source_focus(source_focus: str | Sequence[str]) -> tuple[list[str], 
 
     dynamic_aliases: dict[str, list[str]] | None = None
     resolved: list[str] = []
-    for token, canonical in zip(tokens, canonical_tokens):
+    for token, canonical in zip(tokens, canonical_tokens, strict=True):
         mapped = _COMMON_ALIAS_MAP_CANONICAL.get(canonical)
         raw_source = token.strip().lower().replace("-", "_")
         if mapped is None and _VALID_SOURCE_TOKEN.fullmatch(raw_source) and "_" in raw_source:
